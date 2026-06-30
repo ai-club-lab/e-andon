@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git fetch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx:*)",
+      "Bash(pnpm:*)",
+
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip install:*)",
+      "Bash(uv:*)",
+      "Bash(pytest:*)",
+      "Bash(ruff:*)",
+
+      "Bash(gcloud config:*)",
+      "Bash(gcloud auth list:*)",
+      "Bash(gcloud projects describe:*)",
+      "Bash(gcloud services list:*)",
+      "Bash(gcloud run services list:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud run revisions list:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(gcloud builds describe:*)",
+      "Bash(gcloud builds log:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(gcloud artifacts repositories list:*)",
+
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh workflow view:*)",
+
+      "Bash(docker build:*)",
+      "Bash(docker images:*)",
+      "Bash(docker ps:*)",
+
+      "WebSearch",
+      "WebFetch(domain:cloud.google.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:google.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:zenn.dev)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(gcloud projects delete:*)",
+      "Bash(gcloud run services delete:*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/serviceaccount*.json)",
+      "Read(**/sa-key*.json)"
+    ]
+  }
+}

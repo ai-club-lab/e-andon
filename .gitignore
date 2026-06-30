@@ -1,0 +1,39 @@
+# === Secrets (ガードレール E: 公開 repo に絶対コミットしない) ===
+.env
+.env.*
+*.key
+*.pem
+*-key.json
+*credentials*.json
+service-account*.json
+application_default_credentials.json
+gcp-sa*.json
+
+# === OS / editor ===
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# === Node ===
+node_modules/
+npm-debug.log*
+dist/
+build/
+
+# === Terraform ===
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# === Claude Code (local-only overrides) ===
+.claude/settings.local.json
