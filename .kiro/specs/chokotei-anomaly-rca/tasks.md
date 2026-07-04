@@ -16,10 +16,10 @@
 
 ## 2. データ基盤（Cloud SQL）
 
-- [ ] 2.1 Cloud SQL Postgres インスタンス作成＋pgvector 有効化、`roles/cloudsql.client` 付与 — 10.2, (研究#5)
-- [ ] 2.2 アプリ表のマイグレーション（anomaly_events / iot_readings / rca_results / feedback / past_cases）— 3, 4, 5, 8, 9
-- [ ] 2.3 **ADK セッション永続の Day1 smoke**：`SESSION_DB_URL=postgresql+asyncpg://…` で `DatabaseSessionService` 初期化・往復確認（de-risk #1）— 5.5
-- [ ] 2.4 iot_readings に `(ts, channel)` インデックス、past_cases に vector index（次元確認後 HNSW/IVFFlat）— 4.4, 9
+- [x] 2.1 Cloud SQL Postgres インスタンス作成＋pgvector 有効化（`chokotei-db`, db-f1-micro, asia-northeast1）— 10.2, (研究#5)
+- [x] 2.2 アプリ表のマイグレーション（anomaly_events / iot_readings / rca_results / feedback / past_cases）— 3, 4, 5, 8, 9 ✅schema.sql適用
+- [x] 2.3 **ADK セッション永続 smoke**：`postgresql+asyncpg://` で往復＋別インスタンス読戻し確認（de-risk #1）— 5.5 ✅CLEARED
+- [x] 2.4 iot_readings に `(channel, ts)` インデックス — 4.4（vector indexは埋め込み導入時）
 
 ## 3. 検知エンジン（detector）
 
