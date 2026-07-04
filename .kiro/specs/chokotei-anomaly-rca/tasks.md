@@ -40,9 +40,9 @@
 
 ## 5. 合成IoTデータ
 
-- [ ] 5.1 (P) 映像タイムラインに整合した合成IoT生成（vibration_x/y/z, temperature, motor_current）— 4.1
-- [ ] 5.2 異常窓にX軸加速度スパイク＋高調波を相関注入 — 4.3
-- [ ] 5.3 生成データを iot_readings に永続化、時刻/チャネル照会関数 — 4.2, 4.4
+- [x] 5.1 (P) 映像タイムラインに整合した合成IoT生成（vibration_x/y/z, temperature, motor_current）— 4.1
+- [x] 5.2 異常窓にX軸加速度スパイク＋高調波を相関注入 — 4.3 ✅X軸18倍/max3.67G
+- [x] 5.3 生成データを永続化＋時刻/チャネル照会関数（P1はローカルJSONL、Cloud SQL差替は後）— 4.2, 4.4
 
 ## 6. 原因推定エージェント（ADK）
 
