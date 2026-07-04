@@ -1,12 +1,12 @@
 {
   "feature_name": "chokotei-anomaly-rca",
   "created_at": "2026-07-04T07:00:50Z",
-  "updated_at": "2026-07-04T07:00:50Z",
+  "updated_at": "2026-07-04T07:01:40Z",
   "language": "ja",
-  "phase": "initialized",
+  "phase": "requirements-generated",
   "project_description": "工場ラインの俯瞰映像から部品の整列異常（等間隔配置からの逸脱＝縦ズレ／回転）を決定論CVで検知し、異常発生時にエージェント（ADK/Gemini）が振動等のIoTログを相関抽出して原因を推定、ダッシュボードのチャットでユーザーに通知する。ユーザーは他ログもチャットから照会できる。人が確認しAI推定と異なる場合は正解データとして蓄積し、次回のfew-shot改善に再利用する（HITL学習ループ）。GCPサービスを合理的に用い、1閉ループを稼働URLとして成立させる。",
   "approvals": {
-    "requirements": { "generated": false, "approved": false },
+    "requirements": { "generated": true, "approved": false },
     "design": { "generated": false, "approved": false },
     "tasks": { "generated": false, "approved": false }
   },
