@@ -9,10 +9,10 @@
 
 ## 1. プロジェクト基盤とスキーマ
 
-- [ ] 1.1 モノレポ骨格を作成（`services/{detector,agent,dashboard}` `packages/shared` `data/` `infra/`）— 10.x
-- [ ] 1.2 `packages/shared` に pydantic 契約を定義（PartObservation/FrameResult/FlagDetail/AnomalyEvent/RcaResult/Feedback/IoTReading）— 2, 3, 5, 6, 8
-- [ ] 1.3 共通設定注入（閾値 offset=10/angle=10/gap=1.5/band=8–12、ROI、リージョン）を env/設定ファイル化 — 2, 10.6
-- [ ] 1.4 依存を固定（`opencv-python-headless` `google-adk==2.0.x` `asyncpg` `sse-starlette` `fastapi` 等、`pip freeze` でピン）— 5, 10.3
+- [x] 1.1 モノレポ骨格を作成（`services/{detector,agent,dashboard}` `packages/shared` `infra/`）— 10.x
+- [x] 1.2 `packages/shared` に pydantic 契約を定義（PartObservation/FrameResult/FlagDetail/AnomalyEvent/RcaResult/Feedback/IoTReading）— 2, 3, 5, 6, 8 ✅import検証済み
+- [x] 1.3 共通設定注入（閾値 offset=10/angle=10/gap=1.5/band=8–12、ROI、リージョン）を env/設定ファイル化 — 2, 10.6
+- [x] 1.4 依存を固定（`opencv-python-headless` `google-adk==2.3.0` `asyncpg` `sse-starlette` `fastapi` 等）— 5, 10.3
 
 ## 2. データ基盤（Cloud SQL）
 

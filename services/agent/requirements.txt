@@ -1,0 +1,8 @@
+# agent service (design.md §8) — ADK 2.x pinned (de-risk #2)
+google-adk==2.3.0
+asyncpg==0.30.0                 # async driver for DatabaseSessionService (de-risk #1)
+sqlalchemy[asyncio]==2.0.36
+pgvector==0.3.6                 # RAG over past_cases (Req 9)
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+-e ../../packages/shared

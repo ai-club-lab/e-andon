@@ -1,0 +1,8 @@
+# dashboard service (design.md §4.4, §7) — API + SSE + chat + HITL
+fastapi==0.115.6
+sse-starlette==2.1.3
+uvicorn[standard]==0.34.0
+jinja2==3.1.5                   # lightweight server-rendered front (§12 decision 1)
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.36
+-e ../../packages/shared

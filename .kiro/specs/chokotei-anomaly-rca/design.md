@@ -41,7 +41,7 @@ detector(worker) --anomaly_event--> orchestrator/agent --result--> dashboard(api
 | 言語 | Python 3.12（全サービス） | ADK/OpenCV/pydantic 一本化・速度 |
 | 検知 | OpenCV（headless） | PoC実証・決定論・軽量 |
 | Vision二段 | Vertex AI Gemini 2.5 Flash | ADC鍵不要・境界帯のみ |
-| エージェント | **google-adk==2.0.x（厳密ピン）** | de-risk #2・AgentTool |
+| エージェント | **google-adk==2.3.0（厳密ピン）** | de-risk #2・AgentTool（PyPI最新安定） |
 | セッション/DB | Cloud SQL Postgres + `DatabaseSessionService` | de-risk #1・`postgresql+asyncpg://` |
 | RAG | pgvector | 次元でindex種別選択（#5） |
 | 配信 | SSE（`sse-starlette`）/ FastAPI | 実装単純・双方向不要 |
@@ -145,7 +145,7 @@ past_cases(id PK, embedding vector, summary, correct_cause, source_event_id)  --
 
 ## 8. Agent Design（ADK 2.0）
 
-- `google-adk==2.0.x` 厳密ピン。`SESSION_DB_URL=postgresql+asyncpg://...`。events新カラム込みでschema初期化。
+- `google-adk==2.3.0` 厳密ピン。`SESSION_DB_URL=postgresql+asyncpg://...`。events新カラム込みでschema初期化。
 - root orchestrator＋FunctionTool群（§4.3）。`transfer_to_agent` 不使用。
 - Gemini: ツールスキーマの `anyOf/default` サニタイズ、`HttpRetryOptions[429]` 明示ON、us-central1。
 - 失敗は例外＋構造化ログ（R5.6/R10.5）。
