@@ -46,12 +46,12 @@
 
 ## 6. 原因推定エージェント（ADK）
 
-- [ ] 6.1 ADK root orchestrator を構成（`google-adk==2.0.x`、DatabaseSessionService 配線）— 5.1, 5.5
-- [ ] 6.2 FunctionTool 実装：`query_vibration` / `query_logs` / `get_frame`（AgentTool構成、transfer不使用）— 4.2, 5.2, 6.2
-- [ ] 6.3 `search_past_cases`（pgvector RAG、訂正済み事例を優先）— 5.4, 9.1, 9.2
-- [ ] 6.4 `infer(event) -> RcaResult`（原因候補・確信度・根拠を生成）— 5.1, 5.3
-- [ ] 6.5 モデル呼び出し失敗を例外＋構造化ログ化（無音フォールバック禁止）— 5.6, 10.5
-- [ ] 6.6* 推論の結合テスト（相関スパイク→原因候補に治具緩みが上位）— 5
+- [x] 6.1 ADK root orchestrator を構成（`google-adk==2.3.0`、InMemory/DatabaseSessionService 切替）— 5.1, 5.5
+- [x] 6.2 FunctionTool 実装：`query_vibration` / `query_logs` / `get_frame`（AgentTool構成、transfer不使用）— 4.2, 5.2, 6.2
+- [x] 6.3 `search_past_cases`（P1はローカルJSONL＋keyword、pgvectorは後）— 5.4, 9.1, 9.2 ✅治具緩みヒット
+- [x] 6.4 `infer(event) -> RcaResult`（原因候補・確信度・根拠を生成）— 5.1, 5.3 ✅実Vertex, conf0.6
+- [x] 6.5 モデル呼び出し失敗を例外＋構造化ログ化／DB永続は SESSION_DB_URL で有効化（DB smokeは2.3待ち）— 5.6, 10.5
+- [x] 6.6 推論の結合テスト（相関スパイク vibration_x=3.559 を根拠に採用）— 5 ✅緑
 
 ## 7. ダッシュボード＋チャット（FastAPI＋軽量フロント）
 
