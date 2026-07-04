@@ -1,5 +1,7 @@
 # chokotei-anomaly-rca
 
+**稼働URL: https://chokotei-dashboard-523085315022.asia-northeast1.run.app**（Cloud Run / min-instances=0）
+
 工場ラインの俯瞰映像から部品の整列異常（等間隔からの逸脱＝縦ズレ／回転）を**決定論CV**で検知し、
 **ADKエージェント**が振動等のIoTログを相関して原因を推定、**ダッシュボードのチャット**で通知。
 人が確認・訂正した内容を蓄積して次回の few-shot 改善に還す **HITL 閉ループ**。

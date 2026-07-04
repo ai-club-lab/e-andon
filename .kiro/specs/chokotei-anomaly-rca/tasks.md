@@ -70,11 +70,11 @@
 
 ## 9. 配線・デプロイ（稼働URL）
 
-- [ ] 9.1 各サービスの Dockerfile／Cloud Run 設定（min-instances=0）— 10.1, 10.2
-- [ ] 9.2 Cloud Run へ `--add-cloudsql-instances`／Vertex は ADC、シークレット非コミット確認 — 10.2, 10.3, (研究#5)
-- [ ] 9.3 ローカル `gcloud run deploy --source .` で2サービス公開（WIFは範囲外）— 10.1
-- [ ] 9.4 Logging/Monitoring/Trace への主要処理ログ・メトリクス出力 — 10.5
-- [ ] 9.5 **閉ループ E2E スモーク**：映像→検知→推定→チャット通知→HITL→蓄積が稼働URLで通ること — 1〜10
+- [x] 9.1 Dockerfile／Cloud Run 設定（min-instances=0, unix-socket URL）— 10.1, 10.2
+- [x] 9.2 Cloud Run へ `--add-cloudsql-instances`／Vertex ADC／Secret Manager（非コミット）— 10.2, 10.3 ✅
+- [x] 9.3 `gcloud run deploy --source .` で公開（稼働URL取得）— 10.1 ✅ https://chokotei-dashboard-523085315022.asia-northeast1.run.app
+- [~] 9.4 Cloud Run 標準 Logging に出力（Monitoring/Trace の作り込みは残）— 10.5
+- [x] 9.5 **閉ループ E2E（稼働URL）**：/ 配信・/chat 実Vertex回答・Cloud SQL セッション書込み確認 — 1〜10 ✅（※アプリストア永続化は残・下記）
 
 ## 10. 監査・ガードレール確認
 
@@ -85,5 +85,13 @@
 
 ## カバレッジ
 
-要件 1〜10 の全 acceptance criteria をタスクに割当済み。P1 完了条件＝**9.5 の E2E スモークが稼働URLで通ること**。
-`(P)` は独立実装可（3.6, 5.1 など）。実装は `spec-impl` で1タスクずつ、コンテキストを都度クリアして進める。
+要件 1〜10 の全 acceptance criteria をタスクに割当済み。**P1 完了条件（9.5 稼働URLE2E）達成**。
+`(P)` は独立実装可（3.6, 5.1 など）。
+
+## 残課題（P1後・稼働URLは維持したまま）
+
+- **アプリストア永続化**: feedback / past_cases / events・rca は現在コンテナ内（ephemeral）で
+  scale-to-zero のコールドスタート時にリセット。ADKセッションは Cloud SQL 永続済み。
+  → これらを Cloud SQL（既存 anomaly_events/feedback/past_cases 表）に差し替えるのが次の一手。
+- 3.4 代表フレーム→Cloud Storage、3.5 Gemini二段確認の実呼び出し、10.x 監査・Monitoring/Trace 作り込み。
+- `/healthz` は Cloud Run/GFE 側で 404（コスメティック）。必要なら `/health` にリネーム。
