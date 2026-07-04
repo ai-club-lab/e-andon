@@ -1,0 +1,13 @@
+# Keep Cloud Build context lean
+.git/
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+.kiro/
+docs/poc/frames/
+data/
+scratchpad/
+*.pyc
+.DS_Store
+.claude/

@@ -36,6 +36,24 @@ class DetectionConfig:
     sample_fps: float = _f("DET_SAMPLE_FPS", 5.0)
 
 
+def _session_db_url() -> str:
+    """Build the ADK session URL (de-risk #1). async driver is mandatory.
+
+    Priority: explicit SESSION_DB_URL (e.g. local via Cloud SQL Auth Proxy),
+    else compose the Cloud Run unix-socket URL from components.
+    """
+    direct = os.environ.get("SESSION_DB_URL")
+    if direct:
+        return direct
+    conn = os.environ.get("INSTANCE_CONNECTION_NAME")
+    pw = os.environ.get("DB_PASSWORD")
+    if conn and pw:
+        db = os.environ.get("DB_NAME", "chokotei")
+        user = os.environ.get("DB_USER", "postgres")
+        return f"postgresql+asyncpg://{user}:{pw}@/{db}?host=/cloudsql/{conn}"
+    return ""
+
+
 @dataclass(frozen=True)
 class GcpConfig:
     """GCP wiring (Req 10). Regions per gcp-integration.md."""
@@ -44,8 +62,7 @@ class GcpConfig:
     model_region: str = os.environ.get("MODEL_REGION", "us-central1")
     runtime_region: str = os.environ.get("RUNTIME_REGION", "asia-northeast1")
     gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    # ADK session persistence (de-risk #1): async driver is mandatory.
-    session_db_url: str = os.environ.get("SESSION_DB_URL", "")
+    session_db_url: str = _session_db_url()
     frames_bucket: str = os.environ.get("FRAMES_BUCKET", "")
 
 

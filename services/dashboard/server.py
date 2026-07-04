@@ -171,9 +171,17 @@ async def metrics() -> dict:
     return feedback_store.metrics()
 
 
+@app.on_event("startup")
+async def _seed_iot() -> None:
+    """Ensure deterministic IoT seed exists per instance (ephemeral fs)."""
+    if not iot_store.STORE.exists():
+        iot_store.persist(iot_store.generate())
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"ok": True, "video_present": os.path.exists(VIDEO),
+            "session_db": bool(__import__("chokotei_shared").GCP.session_db_url),
             "events": len(state.events)}
 
 
