@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "detector",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8799"],
+      "env": { "PYTHONPATH": "services/detector" },
+      "port": 8799
+    }
+  ]
+}
