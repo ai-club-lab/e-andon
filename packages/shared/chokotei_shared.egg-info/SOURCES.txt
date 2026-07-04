@@ -1,9 +1,0 @@
-pyproject.toml
-chokotei_shared/__init__.py
-chokotei_shared/config.py
-chokotei_shared/contracts.py
-chokotei_shared.egg-info/PKG-INFO
-chokotei_shared.egg-info/SOURCES.txt
-chokotei_shared.egg-info/dependency_links.txt
-chokotei_shared.egg-info/requires.txt
-chokotei_shared.egg-info/top_level.txt

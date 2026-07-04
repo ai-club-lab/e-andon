@@ -23,6 +23,7 @@ venv/
 env/
 .pytest_cache/
 .mypy_cache/
+*.egg-info/
 
 # === Node ===
 node_modules/
