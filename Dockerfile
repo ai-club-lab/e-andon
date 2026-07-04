@@ -11,11 +11,12 @@ COPY packages/shared packages/shared
 RUN pip install --no-cache-dir -e packages/shared
 
 # Explicit union of service deps (avoids -e relative paths in requirements)
+# google-adk pulls a compatible fastapi/starlette/uvicorn; pin to known-good.
 RUN pip install --no-cache-dir \
-    fastapi==0.115.6 sse-starlette==2.1.3 "uvicorn[standard]==0.34.0" jinja2==3.1.5 \
     google-adk==2.3.0 asyncpg==0.30.0 "sqlalchemy[asyncio]==2.0.36" pgvector==0.3.6 \
-    google-genai==1.15.0 google-cloud-storage==2.19.0 \
-    opencv-python-headless==5.0.0 numpy==2.5.0
+    "fastapi==0.139.0" sse-starlette==2.1.3 "uvicorn[standard]==0.34.0" jinja2==3.1.5 \
+    google-cloud-storage==2.19.0 \
+    opencv-python-headless==5.0.0.93 numpy==2.5.0
 
 COPY services/detector services/detector
 COPY services/agent services/agent
