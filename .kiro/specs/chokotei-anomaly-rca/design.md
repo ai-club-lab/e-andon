@@ -45,7 +45,7 @@ detector(worker) --anomaly_event--> orchestrator/agent --result--> dashboard(api
 | セッション/DB | Cloud SQL Postgres + `DatabaseSessionService` | de-risk #1・`postgresql+asyncpg://` |
 | RAG | pgvector | 次元でindex種別選択（#5） |
 | 配信 | SSE（`sse-starlette`）/ FastAPI | 実装単純・双方向不要 |
-| フロント | **未決**（FastAPI+軽量 or Next.js） | Design承認時に確定（§12） |
+| フロント | FastAPI＋軽量フロント（サーバレンダ／素JS） | Python一本化・速度優先（§12） |
 | 実行基盤 | Cloud Run（min-instances=0） | scale-to-zero |
 
 ## 4. Components & Interface Contracts
@@ -178,9 +178,10 @@ research.md §Risks（de-risk Top5）を継承。追加:
 - **時系列トラッキングの誤結合**（別部品を同一視）: cx連続性＋速度で追跡、途切れで新IDを慎重に。
 - **境界帯Gemini呼びの多発**: 帯を狭く（8–12px）・イベント単位で1回に制限。
 
-## 12. Open Decisions（Design承認時に確定）
+## 12. Decisions（確定済み）
 
-1. **フロント技術**: FastAPI+軽量フロント（Python一本・速い）↔ Next.js（見栄え）。
-2. **Pub/Sub をP1に入れるか**（既定: 入れず関数境界、P3で実体化）。
-3. **製品名**。
-4. **RAG 埋め込み次元 → pgvector index 種別**（次元確認後 HNSW/IVFFlat）。
+1. **フロント技術**: **FastAPI＋軽量フロント（サーバレンダ／素のJS）** に確定。Python一本化で速度優先。
+2. **Pub/Sub**: **P1では非採用**（関数境界で疎結合）。負荷/拡張が要るP3で実体化。
+3. **製品名**: 暫定「本システム」。実装に非ブロッキングのため後日確定。
+4. **RAG 埋め込み次元 → pgvector index**: 実装時に埋め込み次元を確認し HNSW(≤2000) / IVFFlat を選択。
+   P1は件数少のため IVFFlat 許容。
