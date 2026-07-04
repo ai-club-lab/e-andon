@@ -7,6 +7,13 @@
       "runtimeArgs": ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8799"],
       "env": { "PYTHONPATH": "services/detector" },
       "port": 8799
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8800"],
+      "env": { "PYTHONPATH": "services/dashboard:services/detector:services/agent" },
+      "port": 8800
     }
   ]
 }

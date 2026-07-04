@@ -33,7 +33,8 @@ os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP.model_region)
 
 _INSTRUCTION = """あなたは工場ラインの異常原因を推定するエンジニアです。
 手順:
-1) 必ず query_vibration で異常時刻周辺の振動を確認し、どのチャネルが逸脱したか特定する。
+1) 必ず query_vibration で異常時刻周辺の振動を確認する。逸脱は絶対値ではなく通常レンジからの
+   相対的な大きさで評価し、最も大きく逸脱したチャネルを主因に結びつける（温度42℃前後は正常）。
 2) 必ず search_past_cases で類似事例を検索する。類似事例があれば、その correct_cause を最有力候補に採用する。
 3) evidence には実際に参照した数値（チャネル名と max_abs 等）を必ず含める。
 最後に必ず次のJSONのみを出力してください（前後に文章を付けない）:
@@ -48,6 +49,34 @@ def build_agent() -> Agent:
         instruction=_INSTRUCTION,
         tools=[query_vibration, query_logs, search_past_cases, get_frame],
     )
+
+
+_CHAT_INSTRUCTION = """あなたは工場ライン監視のアシスタントです。
+ユーザーの質問に答えるため、必要に応じてツールで振動・温度・電流ログや過去事例を照会し、
+参照した数値を根拠として簡潔に日本語で回答してください。
+対象データが無い場合は「該当データがありません」と明示してください。
+"""
+
+
+def build_chat_agent() -> Agent:
+    return Agent(
+        name="line_assistant",
+        model=GCP.gemini_model,
+        instruction=_CHAT_INSTRUCTION,
+        tools=[query_vibration, query_logs, search_past_cases],
+    )
+
+
+async def answer_query(question: str, user_id: str = "line-op") -> str:
+    """Answer a free-form operator question over the logs (Req 6.2/6.4)."""
+    runner = Runner(agent=build_chat_agent(), app_name=_APP, session_service=_session_service())
+    session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
+    msg = types.Content(role="user", parts=[types.Part(text=question)])
+    out = ""
+    async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):
+        if ev.is_final_response() and ev.content and ev.content.parts:
+            out = "".join(p.text or "" for p in ev.content.parts)
+    return out or "（応答を生成できませんでした）"
 
 
 def _session_service():
