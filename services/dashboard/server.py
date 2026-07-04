@@ -17,8 +17,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
+import feedback_store
 import iot_store
-from chokotei_shared import DETECTION, AnomalyEvent
+import past_cases as pc
+from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase
 from detection import detect_frame
 from rca_agent import answer_query, infer
 from render import annotate, to_jpeg
@@ -138,9 +140,35 @@ async def chat(req: Request) -> dict:
 
 @app.post("/feedback")
 async def feedback(req: Request) -> dict:
-    body = await req.json()
-    state.feedback.append(body)
-    return {"ok": True, "stored": len(state.feedback)}
+    """Record a human verdict; reflux corrections into past cases (Req 8, 9)."""
+    body = await req.json() or {}
+    event_id = body.get("event_id", "")
+    verdict = body.get("verdict")
+    human_cause = (body.get("human_cause") or "").strip()
+    rec = state.events.get(event_id)
+    if not rec or verdict not in ("correct", "wrong"):
+        return {"ok": False, "error": "invalid event_id or verdict"}
+    if verdict == "wrong" and not human_cause:
+        return {"ok": False, "error": "human_cause required when wrong"}
+
+    ai = rec.get("rca") or {}
+    feedback_store.save({
+        "event_id": event_id, "verdict": verdict,
+        "ai_cause": ai.get("cause_candidates", []), "human_cause": human_cause or None,
+        "kind": rec["event"]["kind"], "peak": rec["event"]["peak_magnitude"],
+    })
+    if verdict == "wrong":
+        ev = rec["event"]
+        # reflux: make the corrected case searchable + let next occurrence re-infer
+        summary = f"{ev['kind']}異常 vibration_x逸脱 ピーク{ev['peak_magnitude']:.0f} {human_cause}"
+        pc.add(FeedbackCase(summary=summary, correct_cause=human_cause, source_event_id=event_id))
+        state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
+    return {"ok": True, "metrics": feedback_store.metrics()}
+
+
+@app.get("/metrics")
+async def metrics() -> dict:
+    return feedback_store.metrics()
 
 
 @app.get("/healthz")
@@ -176,7 +204,7 @@ button{padding:6px 10px;background:#2a3350;color:#fff;border:0;border-radius:4px
   <div class=panel>振動 X 軸 <canvas id=vib width=800 height=80></canvas></div>
  </div>
  <div>
-  <div class=panel><b>異常イベント</b><div id=events></div></div>
+  <div class=panel><b>異常イベント</b> <span id=metrics style=color:#8fd18f;font-size:12px></span><div id=events></div></div>
   <div class=panel><b>チャット</b><div id=chatlog></div>
    <div style=margin-top:6px><input id=q placeholder="例: 直近の温度は？"><button onclick=send()>送信</button></div>
   </div>
@@ -193,12 +221,24 @@ es.addEventListener('frame',e=>{const d=JSON.parse(e.data);
  for(const n of d.notifications){addChat('bot',n.text);refreshEvents();}
 });
 async function refreshEvents(){const r=await fetch('/events');const evs=await r.json();
- evc.innerHTML='';for(const it of evs.slice().reverse()){const e=it.event;
+ evc.innerHTML='';for(const it of evs.slice().reverse().slice(0,6)){const e=it.event;
   const div=document.createElement('div');div.className='ev';
   div.innerHTML='<b>'+e.event_id+'</b> '+e.kind+' peak='+e.peak_magnitude.toFixed(1)+
    (it.rca?'<div class=rca>推定: '+it.rca.cause_candidates.join(', ')+
-    ' ('+Math.round(it.rca.confidence*100)+'%)</div>':'<div class=rca>推論中…</div>');
+    ' ('+Math.round(it.rca.confidence*100)+'%)</div>'+
+    '<div style=margin-top:4px><button onclick="fb(\\''+e.event_id+'\\',\\'correct\\')">正しい</button> '+
+    '<button onclick="fb(\\''+e.event_id+'\\',\\'wrong\\')">誤り</button></div>'
+    :'<div class=rca>推論中…</div>');
   evc.appendChild(div);}}
+async function fb(id,verdict){let hc=null;
+ if(verdict==='wrong'){hc=prompt('正しい原因を入力してください');if(!hc)return;}
+ const r=await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({event_id:id,verdict:verdict,human_cause:hc})});
+ const d=await r.json();refreshMetrics();refreshEvents();
+ addChat('bot',d.ok?('✓ フィードバック記録: '+verdict+(hc?(' → '+hc):'')):('記録失敗: '+d.error));}
+async function refreshMetrics(){const r=await fetch('/metrics');const m=await r.json();
+ document.getElementById('metrics').textContent=m.total?
+  ('正答率 '+Math.round((m.correct_rate||0)*100)+'% ('+m.correct+'/'+m.total+')'):'';}
 function addChat(cls,txt){const p=document.createElement('div');p.className=cls;
  p.textContent=(cls==='me'?'> ':'🤖 ')+txt;log.appendChild(p);log.scrollTop=log.scrollHeight;}
 async function send(){const q=document.getElementById('q');const m=q.value.trim();if(!m)return;
@@ -211,5 +251,5 @@ async function drawVib(){const r=await fetch('/iot?channel=vibration_x&t0=0&t1=1
  const mx=Math.max(...pts.map(p=>Math.abs(p[1])))||1;
  pts.forEach((p,i)=>{const px=i/(pts.length-1)*w,py=h/2-(p[1]/mx)*(h/2-4);
   i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();}
-drawVib();setInterval(refreshEvents,3000);
+drawVib();refreshMetrics();setInterval(refreshEvents,3000);setInterval(refreshMetrics,3000);
 </script>"""

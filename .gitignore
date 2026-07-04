@@ -36,8 +36,10 @@ build/
 *.tfstate.*
 .terraform/
 
-# === Generated data (regenerable seeds) ===
+# === Generated / runtime data ===
 data/iot/*.jsonl
+data/feedback/*.jsonl
+data/cases/*.jsonl
 
 # === Claude Code (local-only overrides) ===
 .claude/settings.local.json
