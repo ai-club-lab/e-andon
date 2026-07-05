@@ -1,6 +1,6 @@
 # Chokotei Sentinel — 工場ライン見える化 × AI自律原因推定
 
-[![ci](https://github.com/Suzuki-Sotaro/chokotei-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/Suzuki-Sotaro/chokotei-sentinel/actions/workflows/ci.yml)
+[![ci](https://github.com/ai-club-lab/chokotei-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-club-lab/chokotei-sentinel/actions/workflows/ci.yml)
 
 **稼働URL: https://chokotei-dashboard-523085315022.asia-northeast1.run.app** （Cloud Run / min-instances=0）
 

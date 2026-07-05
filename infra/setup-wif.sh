@@ -13,7 +13,7 @@ set -euo pipefail
 
 PROJECT=fhack26-aiclub
 PNUM=523085315022
-REPO=Suzuki-Sotaro/chokotei-sentinel
+REPO=ai-club-lab/chokotei-sentinel
 SA="523085315022-compute@developer.gserviceaccount.com"   # runtime SA (has roles/editor); reused as deployer
 POOL=github-pool
 PROVIDER=github-provider
@@ -26,7 +26,7 @@ gcloud iam workload-identity-pools providers create-oidc "$PROVIDER" \
   --display-name="GitHub OIDC" \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
-  --attribute-condition="assertion.repository_owner=='Suzuki-Sotaro'" || true
+  --attribute-condition="assertion.repository_owner=='ai-club-lab'" || true
 
 echo "2/3 Let the repo impersonate the deploy SA (keyless)…"
 gcloud iam service-accounts add-iam-policy-binding "$SA" --project="$PROJECT" \
