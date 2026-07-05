@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chokotei Sentinel — ライン予兆検知</title>
+<title>Chokotei Sentinel — 工場ライン見える化 × 自律原因推定</title>
 <style>
 :root{
   --bg:#f6f7fb; --card:#ffffff; --ink:#1a2030; --muted:#6b7488; --line:#e7e9f0;
@@ -12,42 +12,65 @@
   --warn:#d9860a; --shadow:0 1px 2px rgba(20,30,60,.04),0 6px 20px rgba(20,30,60,.06);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"Helvetica Neue",sans-serif;
-  -webkit-font-smoothing:antialiased}
-a{color:var(--brand)}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 /* ---- header ---- */
-header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var(--card);
-  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
-.logo{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;
-  display:grid;place-items:center;font-size:16px}
+header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;background:var(--card);border-bottom:1px solid var(--line);z-index:5}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
+.logo{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:16px}
 .brand small{display:block;font-weight:500;font-size:11px;color:var(--muted);margin-top:1px}
 .spacer{flex:1}
-.status{display:flex;align-items:center;gap:9px;padding:8px 16px;border-radius:999px;
-  font-weight:700;font-size:14px;transition:.25s}
+.hstat{display:flex;gap:8px;align-items:center}
+.hstat .kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:5px 13px;text-align:center;min-width:74px}
+.hstat .kpi b{display:block;font-size:16px;line-height:1.2}
+.hstat .kpi span{font-size:10.5px;color:var(--muted)}
+.status{display:flex;align-items:center;gap:9px;padding:8px 15px;border-radius:999px;font-weight:700;font-size:13.5px;transition:.25s}
 .status .dot{width:9px;height:9px;border-radius:50%;background:currentColor}
 .status.ok{background:var(--ok-soft);color:var(--ok)}
 .status.warn{background:#fff6e6;color:var(--warn)}
 .status.alert{background:var(--alert-soft);color:var(--alert)}
 .status.warn .dot,.status.alert .dot{animation:pulse 1s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(229,72,77,.5)}70%{box-shadow:0 0 0 8px rgba(229,72,77,0)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
-.kpis{display:flex;gap:10px}
-.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 14px;text-align:center;min-width:78px}
-.kpi b{display:block;font-size:17px;line-height:1.2}
-.kpi span{font-size:11px;color:var(--muted)}
-/* ---- layout ---- */
-main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max-width:1440px;margin:0 auto}
-.col{display:flex;flex-direction:column;gap:16px;min-width:0}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
-.card-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px}
+/* ---- app shell ---- */
+.shell{flex:1;display:flex;min-height:0}
+/* sidebar */
+.sidebar{flex:0 0 232px;background:var(--card);border-right:1px solid var(--line);overflow-y:auto;padding:14px 12px}
+.side-h{font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;margin:6px 8px 8px}
+.line-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid transparent;background:none;
+  border-radius:10px;padding:9px 10px;margin-bottom:3px;cursor:pointer;transition:.12s}
+.line-item:hover{background:var(--bg)}
+.line-item.on{background:var(--brand-soft);border-color:#dfe2fd}
+.line-item .ld{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.line-item .ld.warn{background:var(--warn)}.line-item .ld.alert{background:var(--alert);animation:pulse 1s infinite}
+.line-item .lt{flex:1;min-width:0}
+.line-item .lt b{display:block;font-size:13.5px;font-weight:600}
+.line-item .lt span{font-size:11px;color:var(--muted)}
+.line-item .lb{font-size:9.5px;font-weight:700;color:var(--alert);border:1px solid var(--alert);border-radius:5px;padding:1px 5px}
+.menu-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;color:var(--muted);
+  border-radius:10px;padding:8px 10px;font-size:13px;cursor:pointer}
+.menu-item:hover{background:var(--bg);color:var(--ink)}
+/* center (scrolls) */
+.center{flex:1;overflow-y:auto;min-width:0;padding:18px 22px}
+.line-title{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.line-title h1{font-size:19px;margin:0}
+.line-title .sub{font-size:12px;color:var(--muted)}
+.sect{margin-bottom:20px}
+.sect-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:10px}
+.sect-h .note{font-size:11px;font-weight:500;color:var(--muted)}
+.sect-h .badge{font-size:10px;font-weight:700;color:var(--brand);background:var(--brand-soft);border:1px solid #dfe2fd;border-radius:6px;padding:1px 7px}
+.grid{display:grid;gap:12px}
+.grid.g3{grid-template-columns:repeat(3,1fr)}
+.grid.g2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.card-h{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;font-size:13.5px}
 .card-h .live{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--alert);font-weight:700}
 .card-h .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--alert);animation:pulse 1s infinite}
 .tag{font-size:11px;font-weight:600;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
-/* ---- video ---- */
+/* video */
 .video-wrap{position:relative;background:#0c0e14}
 .video-wrap img{display:block;width:100%;aspect-ratio:1014/634;object-fit:cover}
-.vcap{display:flex;align-items:center;gap:14px;padding:10px 16px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.vcap{display:flex;align-items:center;gap:14px;padding:10px 14px;font-size:13px;color:var(--muted);flex-wrap:wrap}
 .vcap b{color:var(--ink)}
 .vcap .pill{font-weight:700;border-radius:999px;padding:3px 10px;font-size:12px}
 .vcap .pill.ok{background:var(--ok-soft);color:var(--ok)}
@@ -56,31 +79,27 @@ main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max
 #replay{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s}
 #replay:hover{background:var(--bg)}
 #replay.hot{border-color:var(--alert);color:var(--alert);background:var(--alert-soft)}
-/* ---- chart ---- */
-.chart-body{padding:8px 12px 14px}
-canvas#sig{width:100%;height:150px;display:block}
-.tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
-.tabs::-webkit-scrollbar{display:none}
-.tab{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.12s}
-.tab:hover{border-color:var(--brand)}
-.tab.on{background:var(--brand);border-color:var(--brand);color:#fff}
-.tab.vision.on{background:#4f46e5;border-color:#4f46e5}
-.legend{display:flex;gap:16px;padding:0 16px 12px;font-size:12px;color:var(--muted)}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-/* ---- assistant ---- */
-.assistant{display:flex;flex-direction:column;height:calc(100vh - 132px);min-height:520px}
+/* mini chart */
+.mini .mh{display:flex;align-items:baseline;gap:8px;padding:9px 12px 4px}
+.mini .mh .ml{font-size:12px;font-weight:600;color:var(--muted)}
+.mini .mh .mv{margin-left:auto;font-size:15px;font-weight:700}
+.mini .mh .mu{font-size:10px;color:var(--muted);font-weight:500}
+.mini canvas{width:100%;height:78px;display:block;padding:0 8px 8px}
+.mini.warnv{border-color:#f3c088}.mini.badv{border-color:var(--alert)}
+.demo-note{font-size:12px;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:12px 14px;margin-bottom:16px}
+/* chat (independent scroll) */
+.chat{flex:0 0 384px;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.chat-h{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px}
 .feed{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
 .feed>*{flex-shrink:0}
 .msg{max-width:92%;font-size:13.5px;line-height:1.5}
 .msg.bot{align-self:flex-start;background:var(--bg);border:1px solid var(--line);border-radius:14px 14px 14px 4px;padding:10px 12px}
 .msg.me{align-self:flex-end;background:var(--brand);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 12px}
-.alert-card{align-self:stretch;border:1px solid var(--alert);border-left:4px solid var(--alert);
-  border-radius:12px;overflow:hidden;background:#fff;animation:slidein .35s ease}
+.alert-card{align-self:stretch;border:1px solid var(--alert);border-left:4px solid var(--alert);border-radius:12px;overflow:hidden;background:#fff;animation:slidein .35s ease}
 @keyframes slidein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.alert-card .ah{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--alert-soft);
-  color:var(--alert);font-weight:700;font-size:13px}
+.alert-card .ah{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--alert-soft);color:var(--alert);font-weight:700;font-size:13px}
 .alert-card .ab{padding:11px 12px;font-size:13px}
-.alert-card .cause{font-weight:700;font-size:14.5px;margin-bottom:6px}
+.alert-card .cause{font-weight:700;font-size:14px;margin-bottom:6px;line-height:1.5}
 .conf{display:flex;align-items:center;gap:8px;margin:6px 0}
 .conf .bar{flex:1;height:7px;border-radius:4px;background:var(--line);overflow:hidden}
 .conf .bar i{display:block;height:100%;background:var(--brand)}
@@ -88,144 +107,282 @@ canvas#sig{width:100%;height:150px;display:block}
 .evi{font-size:12px;color:var(--muted);background:var(--bg);border-radius:8px;padding:7px 9px;margin-top:6px}
 .thumb{width:100%;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
 .fb{display:flex;gap:8px;margin-top:10px}
-.fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;
-  font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+.fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .fb button.no:hover{background:var(--alert-soft);border-color:var(--alert);color:var(--alert)}
 .fb button.done{opacity:.5;pointer-events:none}
 .composer{border-top:1px solid var(--line);padding:12px;background:#fff}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
-.chip{font-size:12px;color:var(--brand);background:var(--brand-soft);border:1px solid #dfe2fd;
-  border-radius:999px;padding:4px 10px;cursor:pointer}
+.chip{font-size:12px;color:var(--brand);background:var(--brand-soft);border:1px solid #dfe2fd;border-radius:999px;padding:4px 10px;cursor:pointer}
 .inrow{display:flex;gap:8px}
 .inrow input{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
 .inrow input:focus{border-color:var(--brand)}
 .inrow button{border:0;background:var(--brand);color:#fff;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}
 .empty{color:var(--muted);font-size:13px;text-align:center;margin:auto;padding:20px;line-height:1.7}
-@media(max-width:960px){main{grid-template-columns:1fr}.assistant{height:auto;min-height:auto}.feed{max-height:420px}.kpis{display:none}}
+@media(max-width:1100px){.sidebar{flex-basis:180px}.chat{flex-basis:320px}.grid.g3{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:820px){.grid.g3,.grid.g2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <header>
   <div class="brand"><div class="logo">◧</div>
-    <div>Chokotei Sentinel<small>ライン予兆検知 × 原因推定エージェント</small></div>
+    <div>Chokotei Sentinel<small>工場ライン見える化 × AI自律原因推定</small></div>
   </div>
   <div class="spacer"></div>
-  <div class="kpis">
-    <div class="kpi"><b id="k-off">–</b><span>整列ズレ px</span></div>
-    <div class="kpi"><b id="k-ang">–</b><span>角度ズレ °</span></div>
-    <div class="kpi"><b id="k-gap">–</b><span>ピッチ偏差</span></div>
+  <div class="hstat">
+    <div class="kpi"><b id="k-lines">–</b><span>稼働ライン</span></div>
     <div class="kpi"><b id="k-acc">–</b><span>AI 正答率</span></div>
   </div>
   <div id="status" class="status ok"><span class="dot"></span><span id="status-t">接続中…</span></div>
 </header>
 
-<main>
-  <div class="col">
-    <div class="card">
-      <div class="card-h">ライン映像<span class="tag">俯瞰カメラ</span><span class="live">LIVE</span></div>
-      <div class="video-wrap"><img id="frame" alt="line"></div>
-      <div class="vcap">
-        <span>検知部品 <b id="c-parts">–</b></span>
-        <span id="c-flag" class="pill ok">整列 正常</span>
-        <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span>
-        <button id="replay" onclick="replay()">▶ もう一度再生</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-h">計測トレンド<span class="tag">画像メトリクス & センサー · クリックで切替</span>
-        <span id="belt-badge" class="tag" style="margin-left:auto">ライン: 運転中</span></div>
-      <div class="tabs" id="tabs"></div>
-      <div class="chart-body"><canvas id="sig" width="900" height="150"></canvas></div>
-      <div class="legend" id="siglegend"></div>
-    </div>
-  </div>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="side-h">生産ライン</div>
+    <div id="lines"></div>
+    <div class="side-h" style="margin-top:16px">メニュー</div>
+    <button class="menu-item">▤ ダッシュボード</button>
+    <button class="menu-item">◔ アラート履歴</button>
+    <button class="menu-item">⚙ 設定</button>
+  </aside>
 
-  <div class="col">
-    <div class="card assistant">
-      <div class="card-h">AI アシスタント<span class="tag">ADK · Gemini 2.5</span></div>
-      <div class="feed" id="feed">
-        <div class="empty" id="empty">ラインを監視しています。<br>異常を検知すると、推定原因とともにここに通知します。<br>下の入力からログ照会もできます。</div>
-      </div>
-      <div class="composer">
-        <div class="chips">
-          <span class="chip" onclick="ask(this)">ズレの原因は？</span>
-          <span class="chip" onclick="ask(this)">PLC出力に異常は？</span>
-          <span class="chip" onclick="ask(this)">モータ電流は正常？</span>
-        </div>
-        <div class="inrow"><input id="q" placeholder="ログについて質問…" onkeydown="if(event.key==='Enter')send()">
-          <button onclick="send()">送信</button></div>
-      </div>
+  <main class="center" id="center"></main>
+
+  <aside class="chat">
+    <div class="chat-h">🤖 AI アシスタント<span class="tag" style="margin-left:auto">ADK · Gemini 2.5</span></div>
+    <div class="feed" id="feed">
+      <div class="empty" id="empty">全ラインを監視しています。<br>異常を検知すると、推定原因とともにここに通知します。<br>下の入力からログ照会もできます。</div>
     </div>
-  </div>
-</main>
+    <div class="composer">
+      <div class="chips">
+        <span class="chip" onclick="ask(this)">ズレの原因は？</span>
+        <span class="chip" onclick="ask(this)">各センサーは正常？</span>
+        <span class="chip" onclick="ask(this)">ベルト速度の傾向は？</span>
+      </div>
+      <div class="inrow"><input id="q" placeholder="ラインやログについて質問…" onkeydown="if(event.key==='Enter')send()">
+        <button onclick="send()">送信</button></div>
+    </div>
+  </aside>
+</div>
 
 <script>
 const $=s=>document.querySelector(s);
 const feed=$('#feed'), statusEl=$('#status'), statusT=$('#status-t');
-let hasContent=false, lastAlertAt=0;
+let hasContent=false;
 
-const STATUS={running:['ok','正常稼働中'],warning:['warn','⚠ ズレ検知・監視中'],stopped:['alert','⛔ ライン停止（チョコ停）'],recovered:['ok','✓ ライン復旧・稼働再開']};
-function setStatus(s){
-  const [cls,txt]=STATUS[s]||STATUS.running;
+// ---- lines: line A is LIVE (real camera + detection); B/C/D are demo (graphs only) ----
+const LINES=[
+  {id:'A',name:'組立ライン 1',area:'整列・供給工程',live:true},
+  {id:'B',name:'梱包ライン',area:'箱詰め工程',prof:{belt_speed:9.5,motor_current:2.4,motor_temp:38}},
+  {id:'C',name:'検査ライン',area:'外観検査工程',prof:{belt_speed:6.0,motor_current:1.8,motor_temp:36}},
+  {id:'D',name:'搬送ライン',area:'コンベア搬送',prof:{belt_speed:15.0,motor_current:3.6,motor_temp:44}},
+];
+// image-analysis metrics (derived by the camera/AI — NOT raw sensor logs)
+const VISION={
+  offset:{label:'整列ズレ',unit:'px',tol:12,color:'#4f46e5'},
+  angle: {label:'角度ズレ',unit:'°', tol:6, color:'#7c3aed'},
+  gap:   {label:'ピッチ偏差',unit:'',tol:0.30,color:'#0ea5a3'},
+};
+// raw machine-sensor logs
+const SENSORS={
+  belt_speed:   {label:'ベルト速度',unit:'m/min',base:12.0,amp:0.12},
+  motor_current:{label:'モータ電流',unit:'A',    base:3.0, amp:0.08},
+  vibration:    {label:'振動',      unit:'mm/s', base:0.38,amp:0.04},
+  motor_temp:   {label:'モータ温度',unit:'℃',    base:42.0,amp:0.30},
+  air_pressure: {label:'エア圧',    unit:'MPa',  base:0.50,amp:0.012},
+};
+let activeLine='A';
+let lineStatus='running';                       // status of line A (the live one)
+const hist={t:[],offset:[],angle:[],gap:[]};    // live vision metrics for line A
+const iotCache={};                              // /iot points for line A sensors
+const demoCache={};                             // synthetic points for demo lines
+let lastImg='', lastParts='–', lastTs=0;
+
+// ---- status helpers ----
+const STATUS={running:['ok','全ライン 正常監視中'],warning:['warn','⚠ 組立ライン1 異常検知'],
+  stopped:['alert','⛔ 組立ライン1 停止（チョコ停）'],recovered:['ok','全ライン 正常監視中']};
+function setGlobalStatus(){
+  const [cls,txt]=STATUS[lineStatus]||STATUS.running;
   statusEl.className='status '+cls; statusT.textContent=txt;
+  const running=LINES.length-(lineStatus==='stopped'?1:0);
+  $('#k-lines').textContent=running+' / '+LINES.length;
 }
-function ensureFeed(){ if(!hasContent){ $('#empty')?.remove(); hasContent=true; } }
-function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
-  d.className='msg '+cls; d.textContent=text; feed.appendChild(d); feed.scrollTop=feed.scrollHeight; }
 
+// ---- sidebar ----
+function renderSidebar(){
+  const box=$('#lines'); box.innerHTML='';
+  for(const L of LINES){
+    const b=document.createElement('button'); b.className='line-item'+(L.id===activeLine?' on':''); b.dataset.id=L.id;
+    const dotCls = L.live ? ('ld '+({running:'',warning:'warn',stopped:'alert',recovered:''}[lineStatus]||'')) : 'ld';
+    b.innerHTML='<span class="'+dotCls.trim()+'" id="dot-'+L.id+'"></span>'+
+      '<span class="lt"><b>'+L.name+'</b><span>'+L.area+'</span></span>'+
+      (L.live?'<span class="lb">LIVE</span>':'');
+    b.onclick=()=>selectLine(L.id); box.appendChild(b);
+  }
+}
+function selectLine(id){ activeLine=id; renderSidebar(); renderCenter(); }
+
+// ---- center ----
+function renderCenter(){
+  const L=LINES.find(x=>x.id===activeLine), c=$('#center'); c.innerHTML='';
+  const title=document.createElement('div'); title.className='line-title';
+  title.innerHTML='<h1>'+L.name+'</h1><span class="sub">'+L.area+'</span>';
+  c.appendChild(title);
+  if(L.live){
+    c.insertAdjacentHTML('beforeend', `
+      <div class="sect"><div class="card">
+        <div class="card-h">ライン映像<span class="tag">俯瞰カメラ + 画像解析</span><span class="live">LIVE</span></div>
+        <div class="video-wrap"><img id="frame" alt="line"></div>
+        <div class="vcap"><span>検知部品 <b id="c-parts">–</b></span>
+          <span id="c-flag" class="pill ok">整列 正常</span>
+          <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span>
+          <button id="replay" onclick="replay()">▶ もう一度再生</button></div>
+      </div></div>
+      <div class="sect"><div class="sect-h">画像解析 <span class="badge">AI ビジョン</span>
+        <span class="note">カメラ映像から算出（センサー非搭載の整列機構を監視）</span></div>
+        <div class="grid g3" id="vision-grid"></div></div>
+      <div class="sect"><div class="sect-h">センサーログ <span class="note">機械センサーの生データ · 全チャネル正常</span></div>
+        <div class="grid g3" id="sensor-grid"></div></div>`);
+    $('#frame').src = lastImg?('data:image/jpeg;base64,'+lastImg):'';
+    $('#c-parts').textContent=lastParts; $('#c-ts').textContent=(+lastTs).toFixed(1);
+    $('#replay').classList.toggle('hot', lineStatus==='stopped');
+    buildGrid('vision-grid', Object.keys(VISION), 'vis');
+    buildGrid('sensor-grid', Object.keys(SENSORS), 'sen');
+  } else {
+    c.insertAdjacentHTML('beforeend',
+      '<div class="demo-note">このラインはデモ表示です（カメラ未設置・センサーログのみ）。組立ライン1 が実映像＋AI原因推定の稼働ラインです。</div>'+
+      '<div class="sect"><div class="sect-h">センサーログ <span class="note">機械センサーの生データ · 正常稼働中</span></div>'+
+      '<div class="grid g3" id="sensor-grid"></div></div>');
+    buildGrid('sensor-grid', Object.keys(SENSORS), 'sen');
+  }
+  redraw();
+}
+function buildGrid(gridId, keys, kind){
+  const g=$('#'+gridId);
+  for(const k of keys){
+    const cfg = kind==='vis'?VISION[k]:SENSORS[k];
+    const card=document.createElement('div'); card.className='card mini'; card.id='mini-'+kind+'-'+k;
+    card.innerHTML='<div class="mh"><span class="ml">'+cfg.label+'</span>'+
+      '<span class="mv" id="mv-'+kind+'-'+k+'">–</span><span class="mu">'+(cfg.unit||'')+'</span></div>'+
+      '<canvas id="cv-'+kind+'-'+k+'" width="300" height="90"></canvas>';
+    g.appendChild(card);
+  }
+}
+
+// ---- mini chart drawing ----
+const curT=()=>+(lastTs||0);
+function drawMini(canvasId, pts, cfg, opt){
+  const cv=document.getElementById(canvasId); if(!cv)return; const x=cv.getContext('2d');
+  const W=cv.width,H=cv.height,padL=30,padR=8,padT=8,padB=16,w=W-padL-padR,h=H-padT-padB,T=10;
+  x.clearRect(0,0,W,H);
+  const tol=opt.tol||0;
+  const vmax=(Math.max(tol*1.3, opt.base?opt.base*1.35:0, ...pts.map(p=>p[1]), .1))*1.05||1;
+  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
+  x.strokeStyle='#eef1f6';x.lineWidth=1;x.fillStyle='#aab0bd';x.font='9px sans-serif';
+  [0,vmax/2,vmax].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
+    x.fillText(v.toFixed(vmax<3?1:0),3,yy+3);});
+  if(tol){ const yy=py(tol); x.strokeStyle='#f0b0b0';x.setLineDash([4,3]);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.setLineDash([]); }
+  x.strokeStyle=cfg.color||'#5b6472';x.lineWidth=1.7;x.beginPath();
+  pts.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
+  if(opt.cursor!=null && opt.cursor>0){ x.strokeStyle='#12a150';x.lineWidth=1.3;
+    x.beginPath();x.moveTo(px(opt.cursor),padT);x.lineTo(px(opt.cursor),padT+h);x.stroke(); }
+}
+
+// deterministic demo series (normal band around the line's profile)
+function demoSeries(lineId, key){
+  const ck=lineId+':'+key; if(demoCache[ck]) return demoCache[ck];
+  const cfg=SENSORS[key], prof=(LINES.find(l=>l.id===lineId)||{}).prof||{};
+  const base=prof[key]!=null?prof[key]:cfg.base;
+  let s=0; for(const ch of ck) s=(s*131+ch.charCodeAt(0))>>>0;
+  const rnd=()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296-0.5; };
+  const pts=[]; for(let i=0;i<=50;i++){ pts.push([i/5, +(base+rnd()*cfg.amp*2).toFixed(3)]); }
+  demoCache[ck]=pts; return pts;
+}
+
+async function iotPoints(key){
+  if(iotCache[key]) return iotCache[key];
+  try{ const d=await (await fetch('/iot?channel='+key+'&t0=0&t1=10')).json(); iotCache[key]=d.found?d.points:[]; }
+  catch(e){ iotCache[key]=[]; }
+  return iotCache[key];
+}
+
+async function redraw(){
+  const L=LINES.find(x=>x.id===activeLine);
+  if(L.live){
+    // vision metrics from the live stream
+    for(const k in VISION){ const cfg=VISION[k];
+      const pts=hist.t.map((t,i)=>[t,hist[k][i]]);
+      drawMini('cv-vis-'+k, pts, cfg, {tol:cfg.tol, cursor:curT()});
+      const cur=pts.length?pts[pts.length-1][1]:0, bad=cur>cfg.tol;
+      const mv=$('#mv-vis-'+k); if(mv){ mv.textContent=cur; mv.style.color=bad?'var(--alert)':''; }
+      $('#mini-vis-'+k)?.classList.toggle('badv',bad);
+    }
+    for(const k in SENSORS){ const cfg=SENSORS[k]; const all=await iotPoints(k);
+      const pts=all.filter(p=>p[0]<=curT());
+      drawMini('cv-sen-'+k, pts, {color:'#5b6472'}, {base:cfg.base, cursor:curT()});
+      const cur=pts.length?pts[pts.length-1][1]:cfg.base; const mv=$('#mv-sen-'+k); if(mv) mv.textContent=cur;
+    }
+  } else {
+    for(const k in SENSORS){ const cfg=SENSORS[k]; const pts=demoSeries(L.id,k);
+      drawMini('cv-sen-'+k, pts, {color:'#5b6472'}, {base:cfg.base});
+      const mv=$('#mv-sen-'+k); if(mv) mv.textContent=pts[pts.length-1][1].toFixed(2);
+    }
+  }
+}
+
+// ---- live stream (line A) ----
 let es=null;
 function onFrame(e){
   const d=JSON.parse(e.data);
-  $('#frame').src='data:image/jpeg;base64,'+d.image;
-  $('#c-parts').textContent=d.n_parts;
-  $('#c-ts').textContent=d.ts.toFixed(1);
+  lastImg=d.image; lastParts=d.n_parts; lastTs=d.ts;
   const flagged=d.flags && d.flags.length>0;
-  const ls=d.line_status||'running';
+  lineStatus=d.line_status||'running';
   if(flagged) anomalySeen=true;
-  const fp=$('#c-flag');
-  if(ls==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ライン停止'; }
-  else if(flagged){ fp.className='pill warn'; fp.textContent='⚠ '+d.flags[0].reason; }
-  else { fp.className='pill ok'; fp.textContent='整列 正常'; }
-  $('#belt-badge').textContent = ls==='stopped'?'ライン: 停止':'ライン: 運転中';
-  $('#replay').classList.toggle('hot', ls==='stopped');   // highlight replay once stopped
-  setStatus(ls);
-  if(d.metrics){ updateVisionKPIs(d.metrics); if(d.frame_index>=0) pushMetric(d.ts,d.metrics); }
+  if(d.metrics && d.frame_index>=0){ hist.t.push(d.ts);
+    hist.offset.push(d.metrics.offset); hist.angle.push(d.metrics.angle); hist.gap.push(d.metrics.gap); }
+  // update the live-line DOM only if it's the one on screen
+  if(activeLine==='A'){
+    const im=$('#frame'); if(im) im.src='data:image/jpeg;base64,'+d.image;
+    const cp=$('#c-parts'); if(cp) cp.textContent=d.n_parts;
+    const cts=$('#c-ts'); if(cts) cts.textContent=d.ts.toFixed(1);
+    const fp=$('#c-flag'); if(fp){
+      if(lineStatus==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ライン停止'; }
+      else if(flagged){ fp.className='pill warn'; fp.textContent='⚠ '+d.flags[0].reason; }
+      else { fp.className='pill ok'; fp.textContent='整列 正常'; } }
+    $('#replay')?.classList.toggle('hot', lineStatus==='stopped');
+  }
+  // sidebar dot for line A + global status always
+  const dot=$('#dot-A'); if(dot) dot.className='ld '+({running:'',warning:'warn',stopped:'alert',recovered:''}[lineStatus]||'');
+  setGlobalStatus();
   for(const n of (d.notifications||[])){ addAlert(n); }
 }
 function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',onFrame); }
-// Plays once then holds on the stop; replay = a fresh stream from the start.
 function replay(){
   if(es) es.close();
   anomalySeen=false; anomalyCount=0; shownSig.clear();
-  resetMetrics();
+  hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; lastImg='';
   document.querySelectorAll('.alert-card').forEach(el=>el.remove());
-  $('#replay').classList.remove('hot');
+  $('#replay')?.classList.remove('hot');
   connect();
 }
-connect();
 
-// Alerts appear ONLY when an anomaly happens live in this session (not from
-// historical events). One card per distinct anomaly (kind + cause).
-// The stop notification is the AI agent reporting the choko-tei: it appears
-// only when an anomaly has actually happened this session (anomalySeen), once
-// per distinct cause. The card reads as the agent's message + actionable card.
+// ---- alerts (AI agent, live line only) ----
 const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
+function ensureFeed(){ if(!hasContent){ $('#empty')?.remove(); hasContent=true; } }
+function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
+  d.className='msg '+cls; d.textContent=text; feed.appendChild(d); feed.scrollTop=feed.scrollHeight; }
 async function addAlert(n){
   if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
   const it=evs.find(e=>e.event && e.event.event_id===n.event_id);
   if(!it || !it.rca) return;
-  const c=it.rca;
-  const sig=it.event.kind+'|'+c.cause_candidates.join(',');
-  if(shownSig.has(sig)) return;
-  shownSig.add(sig);
-  anomalyCount++;
+  const c=it.rca; const sig=it.event.kind+'|'+c.cause_candidates.join(',');
+  if(shownSig.has(sig)) return; shownSig.add(sig); anomalyCount++;
   ensureFeed();
   const id=it.event.event_id;
   const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
   div.innerHTML=
-    '<div class="ah">🤖 AIエージェントからの通知</div>'+
+    '<div class="ah">🤖 AIエージェント · 組立ライン1</div>'+
     '<div class="ab"><div class="cause">'+(n.text||'異常を検知しました')+'</div>'+
     '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
     '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
@@ -237,8 +394,8 @@ async function addAlert(n){
   refreshMetrics();
 }
 async function refreshMetrics(){
-  const m=await (await fetch('/metrics')).json();
-  $('#k-acc').textContent=m.total?Math.round((m.correct_rate||0)*100)+'%':'–';
+  try{ const m=await (await fetch('/metrics')).json();
+    $('#k-acc').textContent=m.total?Math.round((m.correct_rate||0)*100)+'%':'–'; }catch(e){}
 }
 async function fb(btn,id,verdict){
   let hc=null;
@@ -260,74 +417,9 @@ async function send(){
   feed.scrollTop=feed.scrollHeight;
 }
 
-const curT=()=>parseFloat($('#c-ts').textContent)||0;
-
-// Signals: 3 image-derived geometric metrics (the hero — accumulated live from
-// the stream) + 5 machine sensors (context, fetched from /iot). Click a tab to
-// chart any of them. Vision metrics carry a tolerance line.
-const VISION={
-  offset:{label:'整列ズレ',unit:'px',tol:12,color:'#4f46e5'},
-  angle: {label:'角度ズレ',unit:'°', tol:6, color:'#7c3aed'},
-  gap:   {label:'ピッチ偏差',unit:'', tol:0.30,color:'#0ea5a3'},
-};
-const SENSORS={
-  belt_speed:   {label:'ベルト速度',unit:'m/min',color:'#7a8194'},
-  motor_current:{label:'モータ電流',unit:'A',    color:'#7a8194'},
-  vibration:    {label:'振動',      unit:'mm/s', color:'#7a8194'},
-  motor_temp:   {label:'モータ温度',unit:'℃',    color:'#7a8194'},
-  air_pressure: {label:'エア圧',    unit:'MPa',  color:'#7a8194'},
-};
-const hist={t:[],offset:[],angle:[],gap:[]};
-const sensorCache={};
-let activeSig='offset';
-
-function resetMetrics(){ hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; updateVisionKPIs({offset:0,angle:0,gap:0}); }
-function pushMetric(ts,m){ hist.t.push(ts);hist.offset.push(m.offset);hist.angle.push(m.angle);hist.gap.push(m.gap);
-  if(activeSig in VISION) drawSignal(); }
-function updateVisionKPIs(m){
-  set('#k-off',m.offset,VISION.offset.tol); set('#k-ang',m.angle,VISION.angle.tol); set('#k-gap',m.gap,VISION.gap.tol);
-}
-function set(id,v,tol){ const el=$(id); if(!el)return; el.textContent=(typeof v==='number'?v:0); el.style.color=v>tol?'var(--alert)':''; }
-
-function buildTabs(){
-  const tabs=$('#tabs'); tabs.innerHTML='';
-  const add=(key,cfg,vision)=>{ const b=document.createElement('button');
-    b.className='tab'+(vision?' vision':'')+(key===activeSig?' on':''); b.textContent=cfg.label;
-    b.onclick=()=>{activeSig=key; buildTabs(); drawSignal();}; tabs.appendChild(b); };
-  for(const k in VISION) add(k,VISION[k],true);
-  for(const k in SENSORS) add(k,SENSORS[k],false);
-}
-async function drawSignal(){
-  const cv=$('#sig'); if(!cv)return; const x=cv.getContext('2d'),W=cv.width,H=cv.height;
-  const padL=38,padR=12,padT=12,padB=20,w=W-padL-padR,h=H-padT-padB,T=10,ct=curT();
-  const vision=activeSig in VISION, cfg=vision?VISION[activeSig]:SENSORS[activeSig];
-  let pts;
-  if(vision){ pts=hist.t.map((t,i)=>[t,hist[activeSig][i]]); }
-  else { if(!sensorCache[activeSig]){ const d=await (await fetch('/iot?channel='+activeSig+'&t0=0&t1=10')).json();
-      sensorCache[activeSig]=d.found?d.points:[]; } pts=sensorCache[activeSig].filter(p=>p[0]<=ct); }
-  x.clearRect(0,0,W,H);
-  const tol=cfg.tol||0, maxv=Math.max(tol*1.4, ...pts.map(p=>p[1]), vision?1:0.1);
-  const vmax=maxv*1.15||1;
-  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
-  x.strokeStyle='#eef0f4';x.lineWidth=1;x.fillStyle='#9aa1b2';x.font='10px sans-serif';
-  [0,vmax/2,vmax].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
-    x.fillText(v.toFixed(vmax<3?1:0),4,yy+3);});
-  for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
-  if(vision && tol){ const yy=py(tol); x.strokeStyle='#f0a0a0';x.setLineDash([4,3]);x.lineWidth=1;
-    x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.setLineDash([]);
-    x.fillStyle='#e5484d';x.fillText('許容',W-padR-26,yy-3); }
-  x.strokeStyle=cfg.color;x.lineWidth=1.8;x.beginPath();
-  pts.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
-  if(ct>0){ x.strokeStyle='#12a150';x.lineWidth=1.4;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke(); }
-  const cur=pts.length?pts[pts.length-1][1]:0, bad=vision&&tol&&cur>tol;
-  $('#siglegend').innerHTML='<span><i style="background:'+cfg.color+'"></i>'+cfg.label
-    +' <b style="color:'+(bad?'var(--alert)':'var(--ink)')+'">'+cur+(cfg.unit?' '+cfg.unit:'')+'</b></span>'
-    +(vision?'<span style="color:var(--muted)">画像から算出（許容 '+tol+(cfg.unit?cfg.unit:'')+'）</span>'
-            :'<span style="color:var(--muted)">機械センサー · 正常範囲</span>');
-}
-buildTabs(); resetMetrics(); drawSignal();
-setInterval(()=>{ if(!(activeSig in VISION)) drawSignal(); },500);
-setInterval(refreshMetrics,4000);
+// ---- boot ----
+renderSidebar(); setGlobalStatus(); renderCenter(); connect();
+setInterval(redraw,500); refreshMetrics(); setInterval(refreshMetrics,5000);
 </script>
 </body>
 </html>
