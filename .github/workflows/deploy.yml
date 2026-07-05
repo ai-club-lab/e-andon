@@ -44,4 +44,4 @@ jobs:
             --set-env-vars "INSTANCE_CONNECTION_NAME=${{ vars.CLOUDSQL_CONN }},DB_NAME=chokotei,DB_USER=postgres,FRAMES_BUCKET=fhack26-aiclub-frames,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT }},GOOGLE_CLOUD_LOCATION=us-central1,MODEL_REGION=us-central1"
 
       - name: Show URL
-        run: gcloud run services describe chokotei-dashboard --region asia-northeast1 --format="value(status.url)"
+        run: gcloud run services describe chokotei-dashboard --project "${{ vars.GCP_PROJECT }}" --region asia-northeast1 --format="value(status.url)"
