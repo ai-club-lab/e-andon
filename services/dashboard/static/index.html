@@ -175,35 +175,34 @@ es.addEventListener('frame',e=>{
   else { fp.className='pill ok'; fp.textContent='整列 正常'; }
   // status: alert while an anomaly is on screen or just was
   setStatus(flagged || (Date.now()-lastAlertAt<2500));
-  for(const n of (d.notifications||[])){ refreshEvents(); }
+  for(const n of (d.notifications||[])){ addAlert(n.event_id); }
 });
 
-const shownSig=new Set();
-async function refreshEvents(){
+// Alerts appear ONLY when an anomaly happens live in this session (not from
+// historical events). One card per distinct anomaly (kind + cause).
+const shownSig=new Set(); let anomalyCount=0;
+async function addAlert(eventId){
   const evs=await (await fetch('/events')).json();
-  $('#k-ev').textContent=evs.length;
-  // one card per distinct anomaly (kind + cause), newest first — avoids flooding
-  // the feed with identical cards each time the loop replays the same anomaly.
-  for(const it of evs.slice().reverse()){
-    if(!it.rca) continue;
-    const c=it.rca;
-    const sig=it.event.kind+'|'+c.cause_candidates.join(',');
-    if(shownSig.has(sig)) continue;
-    shownSig.add(sig);
-    const id=it.event.event_id;
-    ensureFeed();
-    const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
-    div.innerHTML=
-      '<div class="ah">⚠ 異常を検知しました — '+it.event.kind+' / '+id+'</div>'+
-      '<div class="ab"><div class="cause">推定原因: '+c.cause_candidates.join(' / ')+'</div>'+
-      '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
-      '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
-      '<div class="evi">根拠: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
-      '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
-      '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しい</button>'+
-      '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 誤り</button></div></div>';
-    feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
-  }
+  const it=evs.find(e=>e.event && e.event.event_id===eventId);
+  if(!it || !it.rca) return;
+  const c=it.rca;
+  const sig=it.event.kind+'|'+c.cause_candidates.join(',');
+  if(shownSig.has(sig)) return;
+  shownSig.add(sig);
+  anomalyCount++; $('#k-ev').textContent=anomalyCount;
+  ensureFeed();
+  const id=it.event.event_id;
+  const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
+  div.innerHTML=
+    '<div class="ah">⚠ 異常を検知しました — '+it.event.kind+' / '+id+'</div>'+
+    '<div class="ab"><div class="cause">推定原因: '+c.cause_candidates.join(' / ')+'</div>'+
+    '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
+    '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
+    '<div class="evi">根拠: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
+    '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
+    '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しい</button>'+
+    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 誤り</button></div></div>';
+  feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
 }
 async function refreshMetrics(){
@@ -237,23 +236,24 @@ async function drawChart(){
   x.clearRect(0,0,W,H);
   if(!d.found||!d.points.length){ return; }
   const pts=d.points, T=10, ax=[5.8,10];
-  const vmax=Math.max(...pts.map(p=>Math.abs(p[1])))||1;
+  const vmax=Math.max(...pts.map(p=>Math.abs(p[1])))||1;   // stable scale from full range
   const px=t=>padL+(t/T)*w, py=v=>padT+h/2-(v/vmax)*(h/2-4);
-  // anomaly window
-  x.fillStyle='#fdecec'; x.fillRect(px(ax[0]),padT,px(ax[1])-px(ax[0]),h);
-  // gridlines
+  const ct=parseFloat($('#c-ts').textContent)||0;          // reveal only up to "now"
+  // gridlines + axis (full, so the scale stays stable)
   x.strokeStyle='#eef0f4'; x.lineWidth=1; x.fillStyle='#9aa1b2'; x.font='10px sans-serif';
   for(let g=-1;g<=1;g++){ const yy=py(g*vmax); x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
     x.fillText((g*vmax).toFixed(1),4,yy+3); }
   for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
-  // line
+  // anomaly window: shade only the part we've actually reached
+  if(ct>ax[0]){ x.fillStyle='#fdecec'; x.fillRect(px(ax[0]),padT,px(Math.min(ax[1],ct))-px(ax[0]),h); }
+  // line drawn only up to the current time (spike appears when the anomaly arrives)
+  const vis=pts.filter(p=>p[0]<=ct);
   x.strokeStyle='#4f46e5'; x.lineWidth=1.6; x.beginPath();
-  pts.forEach((p,i)=>{ const X=px(p[0]),Y=py(p[1]); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
+  vis.forEach((p,i)=>{ const X=px(p[0]),Y=py(p[1]); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
   // current time marker
-  const ct=parseFloat($('#c-ts').textContent)||0;
   x.strokeStyle='#12a150'; x.lineWidth=1.5; x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
 }
-drawChart(); setInterval(drawChart,900); setInterval(refreshEvents,3000); refreshEvents();
+drawChart(); setInterval(drawChart,500); setInterval(refreshMetrics,4000);
 </script>
 </body>
 </html>

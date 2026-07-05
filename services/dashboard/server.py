@@ -91,6 +91,9 @@ async def _store_frame(event_id: str, jpg: bytes) -> None:
 
 
 async def _frames():
+    # per-connection tracker: each viewing starts fresh (parts flow, then an
+    # anomaly happens ~6s in) instead of replaying accumulated global state.
+    tracker = EventTracker()
     cap = cv2.VideoCapture(VIDEO)
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
     step = max(1, round(fps / DETECTION.sample_fps))
@@ -108,7 +111,7 @@ async def _frames():
                 continue
             fr = detect_frame(frame, fi, fi / fps)
             annotated_jpg = to_jpeg(annotate(frame, fr))
-            for ev in state.tracker.update(fr):
+            for ev in tracker.update(fr):
                 # Stage 2 (Req 2.5): borderline-band offsets get a Gemini yes/no
                 # confirmation before being treated as anomalies. Clear anomalies
                 # (peak above the band) skip it. Rare -> off the hot path.
