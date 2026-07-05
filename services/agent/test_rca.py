@@ -21,7 +21,7 @@ def _ensure_iot() -> None:
 def test_infer_identifies_correlated_cause() -> None:
     _ensure_iot()
     event = AnomalyEvent(
-        event_id="evt-0139-1", started_ts=5.8, kind="offset",
+        event_id="evt-0139-1", started_ts=8.5, kind="offset",
         peak_magnitude=17.5, rep_frame_uri="", status="closed",
     )
     result = asyncio.run(infer(event))
@@ -31,9 +31,9 @@ def test_infer_identifies_correlated_cause() -> None:
     assert result.event_id == event.event_id
     assert result.confidence > 0.0, "expected non-zero confidence"
     joined = " ".join(result.cause_candidates + result.evidence)
-    # the agent must have correlated the injected X-axis vibration spike
-    assert any(k in joined for k in ["vibration_x", "X軸", "振動", "スパイク", "治具", "緩み"]), (
-        f"expected the X-axis vibration correlation in result: {joined}"
+    # the agent must have correlated the jam/stop signals (current up, belt stop)
+    assert any(k in joined for k in ["motor_current", "電流", "belt", "停止", "噛み", "治具", "緩み"]), (
+        f"expected the jam/stop correlation in result: {joined}"
     )
     print("OK: RCA produced a correlated, structured result")
 

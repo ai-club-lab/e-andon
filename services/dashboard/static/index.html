@@ -28,8 +28,9 @@ header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var
   font-weight:700;font-size:14px;transition:.25s}
 .status .dot{width:9px;height:9px;border-radius:50%;background:currentColor}
 .status.ok{background:var(--ok-soft);color:var(--ok)}
+.status.warn{background:#fff6e6;color:var(--warn)}
 .status.alert{background:var(--alert-soft);color:var(--alert)}
-.status.alert .dot{animation:pulse 1s infinite}
+.status.warn .dot,.status.alert .dot{animation:pulse 1s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(229,72,77,.5)}70%{box-shadow:0 0 0 8px rgba(229,72,77,0)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
 .kpis{display:flex;gap:10px}
 .kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 14px;text-align:center;min-width:78px}
@@ -50,6 +51,7 @@ main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max
 .vcap b{color:var(--ink)}
 .vcap .pill{font-weight:700;border-radius:999px;padding:3px 10px;font-size:12px}
 .vcap .pill.ok{background:var(--ok-soft);color:var(--ok)}
+.vcap .pill.warn{background:#fff6e6;color:var(--warn)}
 .vcap .pill.alert{background:var(--alert-soft);color:var(--alert)}
 /* ---- chart ---- */
 .chart-body{padding:8px 12px 14px}
@@ -120,11 +122,12 @@ canvas#vib{width:100%;height:150px;display:block}
       </div>
     </div>
     <div class="card">
-      <div class="card-h">振動センサー<span class="tag">X軸加速度</span></div>
+      <div class="card-h">モータ電流<span class="tag">搬送モータ [A]</span>
+        <span id="belt-badge" class="tag" style="margin-left:auto">ベルト: 運転中</span></div>
       <div class="chart-body"><canvas id="vib" width="900" height="150"></canvas></div>
       <div class="legend">
-        <span><i style="background:#4f46e5"></i>vibration_x</span>
-        <span><i style="background:#fde2e2;border:1px solid #f5b5b5"></i>異常ウィンドウ</span>
+        <span><i style="background:#4f46e5"></i>motor_current</span>
+        <span><i style="background:#fde2e2;border:1px solid #f5b5b5"></i>ライン停止</span>
         <span><i style="background:#12a150"></i>現在時刻</span>
       </div>
     </div>
@@ -138,9 +141,9 @@ canvas#vib{width:100%;height:150px;display:block}
       </div>
       <div class="composer">
         <div class="chips">
-          <span class="chip" onclick="ask(this)">温度の傾向は？</span>
-          <span class="chip" onclick="ask(this)">異常時のモータ電流は？</span>
-          <span class="chip" onclick="ask(this)">振動X軸のピークは？</span>
+          <span class="chip" onclick="ask(this)">モータ電流の推移は？</span>
+          <span class="chip" onclick="ask(this)">ベルトはいつ止まった？</span>
+          <span class="chip" onclick="ask(this)">温度は正常？</span>
         </div>
         <div class="inrow"><input id="q" placeholder="ログについて質問…" onkeydown="if(event.key==='Enter')send()">
           <button onclick="send()">送信</button></div>
@@ -154,9 +157,10 @@ const $=s=>document.querySelector(s);
 const feed=$('#feed'), statusEl=$('#status'), statusT=$('#status-t');
 let hasContent=false, lastAlertAt=0;
 
-function setStatus(alert){
-  statusEl.className='status '+(alert?'alert':'ok');
-  statusT.textContent=alert?'異常検知':'正常稼働中';
+const STATUS={running:['ok','正常稼働中'],warning:['warn','⚠ ズレ検知・監視中'],stopped:['alert','⛔ ライン停止（チョコ停）']};
+function setStatus(s){
+  const [cls,txt]=STATUS[s]||STATUS.running;
+  statusEl.className='status '+cls; statusT.textContent=txt;
 }
 function ensureFeed(){ if(!hasContent){ $('#empty')?.remove(); hasContent=true; } }
 function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
@@ -170,21 +174,27 @@ es.addEventListener('frame',e=>{
   $('#c-ts').textContent=d.ts.toFixed(1);
   $('#k-fps').textContent='5';
   const flagged=d.flags && d.flags.length>0;
+  const ls=d.line_status||'running';
+  if(flagged) anomalySeen=true;
   const fp=$('#c-flag');
-  if(flagged){ anomalySeen=true; const f=d.flags[0]; fp.className='pill alert'; fp.textContent='⚠ '+f.reason; lastAlertAt=Date.now(); }
+  if(ls==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ベルト停止'; }
+  else if(flagged){ fp.className='pill warn'; fp.textContent='⚠ '+d.flags[0].reason; }
   else { fp.className='pill ok'; fp.textContent='整列 正常'; }
-  // status: alert while an anomaly is on screen or just was
-  setStatus(flagged || (Date.now()-lastAlertAt<2500));
-  for(const n of (d.notifications||[])){ addAlert(n.event_id); }
+  const bb=$('#belt-badge'); bb.textContent = ls==='stopped'?'ベルト: 停止':'ベルト: 運転中';
+  setStatus(ls);
+  for(const n of (d.notifications||[])){ addAlert(n); }
 });
 
 // Alerts appear ONLY when an anomaly happens live in this session (not from
 // historical events). One card per distinct anomaly (kind + cause).
+// The stop notification is the AI agent reporting the choko-tei: it appears
+// only when an anomaly has actually happened this session (anomalySeen), once
+// per distinct cause. The card reads as the agent's message + actionable card.
 const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
-async function addAlert(eventId){
-  if(!anomalySeen) return;   // no alerts until an anomaly has actually appeared on the line
+async function addAlert(n){
+  if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
-  const it=evs.find(e=>e.event && e.event.event_id===eventId);
+  const it=evs.find(e=>e.event && e.event.event_id===n.event_id);
   if(!it || !it.rca) return;
   const c=it.rca;
   const sig=it.event.kind+'|'+c.cause_candidates.join(',');
@@ -195,14 +205,14 @@ async function addAlert(eventId){
   const id=it.event.event_id;
   const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
   div.innerHTML=
-    '<div class="ah">⚠ 異常を検知しました — '+it.event.kind+' / '+id+'</div>'+
-    '<div class="ab"><div class="cause">推定原因: '+c.cause_candidates.join(' / ')+'</div>'+
+    '<div class="ah">🤖 AIエージェントからの通知</div>'+
+    '<div class="ab"><div class="cause">'+(n.text||'異常を検知しました')+'</div>'+
     '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
     '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
-    '<div class="evi">根拠: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
+    '<div class="evi">参照ログ: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
-    '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しい</button>'+
-    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 誤り</button></div></div>';
+    '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
+    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div></div>';
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
 }
@@ -230,27 +240,29 @@ async function send(){
   feed.scrollTop=feed.scrollHeight;
 }
 
+const STOP_TS=9.5;
 async function drawChart(){
-  const d=await (await fetch('/iot?channel=vibration_x&t0=0&t1=10')).json();
+  const d=await (await fetch('/iot?channel=motor_current&t0=0&t1=10')).json();
   const cv=$('#vib'), x=cv.getContext('2d'); const W=cv.width,H=cv.height;
   const padL=34,padR=10,padT=10,padB=20; const w=W-padL-padR,h=H-padT-padB;
   x.clearRect(0,0,W,H);
   if(!d.found||!d.points.length){ return; }
-  const pts=d.points, T=10, ax=[5.8,10];
-  const vmax=Math.max(...pts.map(p=>Math.abs(p[1])))||1;   // stable scale from full range
-  const px=t=>padL+(t/T)*w, py=v=>padT+h/2-(v/vmax)*(h/2-4);
+  const pts=d.points, T=10;
+  const vmax=(Math.max(...pts.map(p=>p[1]))*1.15)||1;      // 0-based stable scale
+  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;        // 0 at bottom
   const ct=parseFloat($('#c-ts').textContent)||0;          // reveal only up to "now"
-  // gridlines + axis (full, so the scale stays stable)
+  // gridlines + axis
   x.strokeStyle='#eef0f4'; x.lineWidth=1; x.fillStyle='#9aa1b2'; x.font='10px sans-serif';
-  for(let g=-1;g<=1;g++){ const yy=py(g*vmax); x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
-    x.fillText((g*vmax).toFixed(1),4,yy+3); }
+  for(let g=0;g<=2;g++){ const v=vmax*g/2, yy=py(v); x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
+    x.fillText(v.toFixed(1),6,yy+3); }
   for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
-  // anomaly window: shade only the part we've actually reached
-  if(ct>ax[0]){ x.fillStyle='#fdecec'; x.fillRect(px(ax[0]),padT,px(Math.min(ax[1],ct))-px(ax[0]),h); }
-  // line drawn only up to the current time (spike appears when the anomaly arrives)
+  // line reaching current time (current ramps up then the belt stops -> ~0)
   const vis=pts.filter(p=>p[0]<=ct);
-  x.strokeStyle='#4f46e5'; x.lineWidth=1.6; x.beginPath();
+  x.strokeStyle='#4f46e5'; x.lineWidth=1.8; x.beginPath();
   vis.forEach((p,i)=>{ const X=px(p[0]),Y=py(p[1]); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
+  // shade the stopped region only once we've reached it
+  if(ct>STOP_TS){ x.fillStyle='#fdecec'; x.fillRect(px(STOP_TS),padT,px(Math.min(T,ct))-px(STOP_TS),h);
+    x.fillStyle='#e5484d'; x.font='bold 10px sans-serif'; x.fillText('停止',px(STOP_TS)+4,padT+12); }
   // current time marker
   x.strokeStyle='#12a150'; x.lineWidth=1.5; x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
 }

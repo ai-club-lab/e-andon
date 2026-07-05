@@ -17,10 +17,10 @@ from chokotei_shared import FeedbackCase, db
 STORE = Path(os.environ.get("CASES_STORE", "data/cases/past_cases.jsonl"))
 
 _SEED = [
-    FeedbackCase(summary="部品が上方へ変位しX軸振動スパイク", correct_cause="搬送治具の固定緩み",
-                 source_event_id="seed-1"),
-    FeedbackCase(summary="部品が回転しモータ電流上昇", correct_cause="ガイド摩耗による噛み込み",
-                 source_event_id="seed-2"),
+    FeedbackCase(summary="部品が位置ずれし搬送機構で噛み込み、モータ電流上昇後にライン停止",
+                 correct_cause="搬送治具の固定緩みによる部品の位置ずれ", source_event_id="seed-1"),
+    FeedbackCase(summary="ガイド摩耗で部品が引っ掛かりモータ電流上昇・ベルト停止",
+                 correct_cause="ガイドレール摩耗による噛み込み", source_event_id="seed-2"),
 ]
 
 

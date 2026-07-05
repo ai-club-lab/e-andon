@@ -52,12 +52,12 @@ def _sig(ev: AnomalyEvent) -> str:
     return f"{ev.kind}:{round(ev.peak_magnitude)}"
 
 
-async def _infer_and_notify(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
-    """Run (or reuse) RCA for an event and push a chat notification (Req 5, 6.1).
+async def _infer(ev: AnomalyEvent) -> None:
+    """Run (or reuse) RCA for an event and store it — no notification yet.
 
-    Inferences are serialized and de-duplicated by signature: the looping demo
-    re-detects the same anomaly each pass, so we infer once and reuse — this
-    both matches reality and avoids Vertex rate limits (de-risk #4).
+    Started when the misalignment is first detected; the notification is held
+    until the belt actually stops (see _notify_stop). Inferences are serialized
+    and de-duplicated by signature (de-risk #4).
     """
     sig = _sig(ev)
     try:
@@ -71,13 +71,28 @@ async def _infer_and_notify(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
         event_store.save_rca(RcaResult(
             event_id=ev.event_id, cause_candidates=rca_d["cause_candidates"],
             confidence=rca_d["confidence"], evidence=rca_d["evidence"]))
-        text = (
-            f"⚠ 異常 {ev.event_id}（{ev.kind}, ピーク{ev.peak_magnitude:.1f}）"
-            f" 推定原因: {', '.join(rca_d['cause_candidates'])}"
-            f"（確信度 {rca_d['confidence']:.0%}）根拠: {'; '.join(rca_d['evidence'][:2])}"
-        )
-    except Exception as exc:  # no silent fallback (Req 5.6)
-        text = f"⚠ 異常 {ev.event_id}: 原因推定に失敗しました（{type(exc).__name__}）"
+    except Exception:  # no silent fallback (Req 5.6)
+        logging.getLogger("dashboard").exception("RCA failed for %s", ev.event_id)
+
+
+async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
+    """When the belt stops, post the agent's story message (Req 5, 6.1).
+
+    Reads: misalignment detected -> belt stopped -> here is the likely cause.
+    """
+    rca_d = None
+    for _ in range(30):  # RCA started at detection; wait a little if still running
+        rca_d = state.events.get(ev.event_id, {}).get("rca")
+        if rca_d:
+            break
+        await asyncio.sleep(0.3)
+    if rca_d:
+        cause = "、".join(rca_d["cause_candidates"][:2])
+        text = (f"⚠ 部品のズレを検知し、ベルトコンベアを停止しました。確認をお願いします。"
+                f"ログを調べたところ、原因は「{cause}」と推定されます"
+                f"（確信度 {rca_d['confidence']:.0%}）。根拠: {'; '.join(rca_d['evidence'][:2])}")
+    else:
+        text = "⚠ 部品のズレを検知し、ベルトコンベアを停止しました。確認をお願いします。（原因を推定中です）"
     await notifs.put({"event_id": ev.event_id, "text": text})
 
 
@@ -101,17 +116,22 @@ async def _frames():
     step = max(1, round(fps / DETECTION.sample_fps))
     period = step / fps
     fi = -1
+    pending_ev = None      # the misalignment event seen this loop
+    stop_notified = False  # story notification fired for this loop's stop
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 fi = -1
+                pending_ev = None
+                stop_notified = False   # reset per loop (choko-tei recurs)
                 continue
             fi += 1
             if fi % step != 0:
                 continue
-            fr = detect_frame(frame, fi, fi / fps)
+            ts = fi / fps
+            fr = detect_frame(frame, fi, ts)
             annotated_jpg = to_jpeg(annotate(frame, fr))
             for ev in tracker.update(fr):
                 # Stage 2 (Req 2.5): borderline-band offsets get a Gemini yes/no
@@ -127,13 +147,24 @@ async def _frames():
                 event_store.save_event(ev)
                 if frames_store.enabled():
                     asyncio.create_task(_store_frame(ev.event_id, annotated_jpg))
-                asyncio.create_task(_infer_and_notify(ev, notifs))
+                asyncio.create_task(_infer(ev))   # infer now, notify at the stop
+                pending_ev = ev
+            # line state machine: running -> warning (misalignment) -> stopped
+            if ts >= iot_store.STOP_TS:
+                line_status = "stopped"
+                if pending_ev is not None and not stop_notified:
+                    stop_notified = True
+                    asyncio.create_task(_notify_stop(pending_ev, notifs))
+            elif pending_ev is not None:
+                line_status = "warning"
+            else:
+                line_status = "running"
             notes = []
             while not notifs.empty():
                 notes.append(notifs.get_nowait())
             yield {"event": "frame", "data": json.dumps({
                 "frame_index": fr.frame_index, "ts": round(fr.ts, 3),
-                "n_parts": len(fr.parts),
+                "n_parts": len(fr.parts), "line_status": line_status,
                 "flags": [f.model_dump() for f in fr.flags],
                 "notifications": notes,
                 "image": base64.b64encode(annotated_jpg).decode("ascii"),
@@ -196,7 +227,7 @@ async def feedback(req: Request) -> dict:
     if verdict == "wrong":
         ev = rec["event"]
         # reflux: make the corrected case searchable + let next occurrence re-infer
-        summary = f"{ev['kind']}異常 vibration_x逸脱 ピーク{ev['peak_magnitude']:.0f} {human_cause}"
+        summary = f"部品の{ev['kind']}位置ずれ→噛み込みでモータ電流上昇・ライン停止 {human_cause}"
         pc.add(FeedbackCase(summary=summary, correct_cause=human_cause, source_event_id=event_id))
         state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"ok": True, "metrics": feedback_store.metrics()}

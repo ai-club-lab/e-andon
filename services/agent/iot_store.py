@@ -1,16 +1,16 @@
 """Synthetic IoT generation + query store (Req 4, design.md §4.5).
 
-Generates vibration/temperature/motor-current readings aligned to the video
-timeline and injects a correlated X-axis acceleration spike + harmonics during
-the anomaly window, so the RCA agent has real physical signal to reason over.
+Physically-coherent model for the choko-tei (minor line stop) scenario: a
+misaligned part travels down the belt, jams in the transfer mechanism, the
+motor current climbs then spikes, and the conveyor stops (belt speed -> 0,
+PLC RUN -> STOP). Temperature stays normal as a decoy. This gives the RCA
+agent real, correlated signal to reason over.
 
-Local-first: persists to a JSONL file so query works without Cloud SQL. Swap
-``_backend`` for asyncpg/Cloud SQL once the DB is provisioned (task 5.3).
+Local-first: persists to a JSONL file so query works without Cloud SQL.
 """
 from __future__ import annotations
 
 import json
-import math
 import os
 from pathlib import Path
 
@@ -20,44 +20,39 @@ from chokotei_shared import IoTChannel, IoTReading
 
 STORE = Path(os.environ.get("IOT_STORE", "data/iot/readings.jsonl"))
 _SAMPLE_HZ = 50.0
-_CHANNELS: list[IoTChannel] = [
-    "vibration_x", "vibration_y", "vibration_z", "temperature", "motor_current",
-]
+STOP_TS = 9.5  # belt stops here (choko-tei); aligns with the video's end-stop
+_CHANNELS: list[IoTChannel] = ["motor_current", "belt_speed", "plc_status", "temperature"]
 
 
-def generate(
-    duration_s: float = 10.0,
-    anomaly_windows: list[tuple[float, float]] | None = None,
-    seed: int = 42,
-) -> list[IoTReading]:
+def generate(duration_s: float = 10.0, stop_ts: float = STOP_TS, seed: int = 42) -> list[IoTReading]:
     """Generate readings for the whole timeline. Deterministic given ``seed``.
 
-    ``anomaly_windows`` are (start_ts, end_ts) ranges where an X-axis vibration
-    spike + harmonics is injected (correlated with the visual anomaly, Req 4.3).
+    Causal chain (Req 4.3): misaligned part -> jam -> motor current ramp+spike
+    -> belt stop. All channels are correlated with the visual anomaly window.
     """
-    windows = anomaly_windows or [(5.8, 10.0)]
     rng = np.random.default_rng(seed)
     n = int(duration_s * _SAMPLE_HZ)
     out: list[IoTReading] = []
     for i in range(n):
         ts = i / _SAMPLE_HZ
-        anom = any(a <= ts <= b for a, b in windows)
-        base = {
-            "vibration_x": rng.normal(0.0, 0.15),
-            "vibration_y": rng.normal(0.0, 0.15),
-            "vibration_z": rng.normal(0.0, 0.15),
+        running = ts < stop_ts
+        # motor current [A]: 3.0 idle -> load ramp (6.0-9.3s) -> jam spike -> ~0 on stop
+        if ts >= stop_ts:
+            current = 0.2 + rng.normal(0.0, 0.02)
+        elif ts >= 9.3:
+            current = 4.6 + (ts - 9.3) / (stop_ts - 9.3) * 1.2 + rng.normal(0.0, 0.05)  # spike -> ~5.8
+        elif ts >= 6.0:
+            current = 3.0 + (ts - 6.0) / (9.3 - 6.0) * 1.6 + rng.normal(0.0, 0.04)       # ramp -> ~4.6
+        else:
+            current = 3.0 + rng.normal(0.0, 0.04)
+        vals = {
+            "motor_current": current,
+            "belt_speed": (12.0 + rng.normal(0.0, 0.08)) if running else 0.0,
+            "plc_status": 1.0 if running else 0.0,   # 1=RUN, 0=STOP
             "temperature": 42.0 + rng.normal(0.0, 0.2),
-            "motor_current": 3.0 + rng.normal(0.0, 0.05),
         }
-        if anom:
-            # X-axis spike + second/third harmonics; slight current draw rise
-            f = 18.0
-            spike = 3.2 * math.sin(2 * math.pi * f * ts)
-            harm = 0.8 * math.sin(2 * math.pi * 2 * f * ts) + 0.4 * math.sin(2 * math.pi * 3 * f * ts)
-            base["vibration_x"] += spike + harm
-            base["motor_current"] += 0.35
         for ch in _CHANNELS:
-            out.append(IoTReading(ts=round(ts, 4), channel=ch, value=round(float(base[ch]), 4)))
+            out.append(IoTReading(ts=round(ts, 4), channel=ch, value=round(float(vals[ch]), 4)))
     return out
 
 
@@ -80,7 +75,7 @@ def query(channel: IoTChannel, t0: float, t1: float, path: Path = STORE) -> list
     return [r for r in _load(path) if r.channel == channel and t0 <= r.ts <= t1]
 
 
-def query_window(center_ts: float, half_width_s: float = 1.0, path: Path = STORE) -> list[IoTReading]:
+def query_window(center_ts: float, half_width_s: float = 2.0, path: Path = STORE) -> list[IoTReading]:
     """Return all channels within a window centered on an anomaly (Req 4.2)."""
     t0, t1 = center_ts - half_width_s, center_ts + half_width_s
     return [r for r in _load(path) if t0 <= r.ts <= t1]
