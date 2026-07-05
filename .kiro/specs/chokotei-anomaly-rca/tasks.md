@@ -90,8 +90,9 @@
 
 ## 残課題（P1後・稼働URLは維持したまま）
 
-- **アプリストア永続化**: feedback / past_cases / events・rca は現在コンテナ内（ephemeral）で
-  scale-to-zero のコールドスタート時にリセット。ADKセッションは Cloud SQL 永続済み。
-  → これらを Cloud SQL（既存 anomaly_events/feedback/past_cases 表）に差し替えるのが次の一手。
-- 3.4 代表フレーム→Cloud Storage、3.5 Gemini二段確認の実呼び出し、10.x 監査・Monitoring/Trace 作り込み。
+- [x] **アプリストア永続化 完了**: feedback / past_cases / events / rca を Cloud SQL 化
+  （`chokotei_shared/db.py` psycopg・JSONLフォールバック付き）。/events はDB読み、/feedback はDB検証で
+  **HITLがインスタンス非依存**に。ライブで訂正→Cloud SQL永続→reflux 確認済み。ADKセッションも永続済み。
+- 残: 3.4 代表フレーム→Cloud Storage、3.5 Gemini二段確認の実呼び出し、10.x 監査・Monitoring/Trace。
 - `/healthz` は Cloud Run/GFE 側で 404（コスメティック）。必要なら `/health` にリネーム。
+- anomaly_events は毎ループ蓄積（デモ前に `TRUNCATE` で初期化可）。
