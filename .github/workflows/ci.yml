@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests & compile sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install deps (shared + detector)
+        working-directory: services/detector
+        run: |
+          python -m pip install -U pip pytest
+          pip install -r requirements.txt
+      - name: Offline tests (deterministic CV + guardrails)
+        working-directory: services/detector
+        run: pytest -q test_detection.py test_guardrails.py
+      - name: Compile sanity (all services)
+        run: |
+          python -m py_compile \
+            packages/shared/chokotei_shared/*.py \
+            services/detector/*.py \
+            services/agent/*.py \
+            services/dashboard/*.py
+
+  build:
+    name: Docker build (deploy image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the same image Cloud Run runs
+        run: docker build -t chokotei-dashboard:${{ github.sha }} .

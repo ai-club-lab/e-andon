@@ -1,0 +1,47 @@
+name: deploy
+
+# Keyless deploy to Cloud Run via Workload Identity Federation (no SA keys).
+# Stays SKIPPED until a project admin runs infra/setup-wif.sh, which creates the
+# WIF pool/provider and sets the repo variables below. Until then this is inert
+# (the job's `if:` guard is false), so pushes never fail on missing credentials.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write        # required for WIF (missing -> 403)
+
+jobs:
+  deploy:
+    name: Cloud Run deploy
+    if: ${{ vars.WIF_PROVIDER != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP (keyless / WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy
+        run: |
+          gcloud run deploy chokotei-dashboard \
+            --source . \
+            --project "${{ vars.GCP_PROJECT }}" \
+            --region asia-northeast1 \
+            --allow-unauthenticated \
+            --min-instances=0 --memory=1Gi --cpu=1 --timeout=300 \
+            --add-cloudsql-instances "${{ vars.CLOUDSQL_CONN }}" \
+            --set-secrets DB_PASSWORD=chokotei-db-password:latest \
+            --set-env-vars "INSTANCE_CONNECTION_NAME=${{ vars.CLOUDSQL_CONN }},DB_NAME=chokotei,DB_USER=postgres,FRAMES_BUCKET=fhack26-aiclub-frames,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT }},GOOGLE_CLOUD_LOCATION=us-central1,MODEL_REGION=us-central1"
+
+      - name: Show URL
+        run: gcloud run services describe chokotei-dashboard --region asia-northeast1 --format="value(status.url)"
