@@ -225,80 +225,10 @@ async def healthz() -> dict:
             "events": len(state.events)}
 
 
+_STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
-    return _PAGE
-
-
-_PAGE = """<!doctype html><meta charset=utf-8><title>チョコ停 監視ダッシュボード</title>
-<style>
-body{font-family:system-ui;margin:0;background:#0f1115;color:#e6e6e6}
-header{padding:10px 16px;font-weight:600;border-bottom:1px solid #222}
-.wrap{display:grid;grid-template-columns:2fr 1fr;gap:12px;padding:12px}
-img{max-width:100%;border:1px solid #333;border-radius:6px}
-canvas{width:100%;height:80px;background:#161922;border-radius:6px}
-.panel{background:#161922;border:1px solid #222;border-radius:8px;padding:10px;margin-bottom:12px}
-.ev{border-left:3px solid #ff6b6b;padding:6px 8px;margin:6px 0;font-size:13px;background:#1b1e28}
-.rca{color:#9ad;margin-top:4px}
-#chatlog{max-height:220px;overflow:auto;font-size:13px}
-.me{color:#8fd18f}.bot{color:#cdd}
-input{width:72%;padding:6px;background:#0f1115;color:#eee;border:1px solid #333;border-radius:4px}
-button{padding:6px 10px;background:#2a3350;color:#fff;border:0;border-radius:4px;cursor:pointer}
-</style>
-<header>チョコ停 監視ダッシュボード <span id=st style=color:#888></span></header>
-<div class=wrap>
- <div>
-  <img id=f>
-  <div class=panel>振動 X 軸 <canvas id=vib width=800 height=80></canvas></div>
- </div>
- <div>
-  <div class=panel><b>異常イベント</b> <span id=metrics style=color:#8fd18f;font-size:12px></span><div id=events></div></div>
-  <div class=panel><b>チャット</b><div id=chatlog></div>
-   <div style=margin-top:6px><input id=q placeholder="例: 直近の温度は？"><button onclick=send()>送信</button></div>
-  </div>
- </div>
-</div>
-<script>
-const img=document.getElementById('f'),evc=document.getElementById('events'),
- st=document.getElementById('st'),log=document.getElementById('chatlog');
-const seen={};
-const es=new EventSource('/stream');
-es.addEventListener('frame',e=>{const d=JSON.parse(e.data);
- img.src='data:image/jpeg;base64,'+d.image;
- st.textContent='t='+d.ts+'s parts='+d.n_parts;
- for(const n of d.notifications){addChat('bot',n.text);refreshEvents();}
-});
-async function refreshEvents(){const r=await fetch('/events');const evs=await r.json();
- evc.innerHTML='';for(const it of evs.slice().reverse().slice(0,6)){const e=it.event;
-  const div=document.createElement('div');div.className='ev';
-  div.innerHTML='<b>'+e.event_id+'</b> '+e.kind+' peak='+e.peak_magnitude.toFixed(1)+
-   (it.rca?'<div class=rca>推定: '+it.rca.cause_candidates.join(', ')+
-    ' ('+Math.round(it.rca.confidence*100)+'%)</div>'+
-    '<img src="/frame/'+e.event_id+'" style="max-width:100%;margin-top:4px;border-radius:4px" onerror="this.remove()">'+
-    '<div style=margin-top:4px><button onclick="fb(\\''+e.event_id+'\\',\\'correct\\')">正しい</button> '+
-    '<button onclick="fb(\\''+e.event_id+'\\',\\'wrong\\')">誤り</button></div>'
-    :'<div class=rca>推論中…</div>');
-  evc.appendChild(div);}}
-async function fb(id,verdict){let hc=null;
- if(verdict==='wrong'){hc=prompt('正しい原因を入力してください');if(!hc)return;}
- const r=await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({event_id:id,verdict:verdict,human_cause:hc})});
- const d=await r.json();refreshMetrics();refreshEvents();
- addChat('bot',d.ok?('✓ フィードバック記録: '+verdict+(hc?(' → '+hc):'')):('記録失敗: '+d.error));}
-async function refreshMetrics(){const r=await fetch('/metrics');const m=await r.json();
- document.getElementById('metrics').textContent=m.total?
-  ('正答率 '+Math.round((m.correct_rate||0)*100)+'% ('+m.correct+'/'+m.total+')'):'';}
-function addChat(cls,txt){const p=document.createElement('div');p.className=cls;
- p.textContent=(cls==='me'?'> ':'🤖 ')+txt;log.appendChild(p);log.scrollTop=log.scrollHeight;}
-async function send(){const q=document.getElementById('q');const m=q.value.trim();if(!m)return;
- addChat('me',m);q.value='';const r=await fetch('/chat',{method:'POST',
-  headers:{'Content-Type':'application/json'},body:JSON.stringify({message:m})});
- const d=await r.json();addChat('bot',d.reply);}
-async function drawVib(){const r=await fetch('/iot?channel=vibration_x&t0=0&t1=10');
- const d=await r.json();if(!d.found)return;const c=document.getElementById('vib'),x=c.getContext('2d');
- const w=c.width,h=c.height,pts=d.points;x.clearRect(0,0,w,h);x.strokeStyle='#6b9bff';x.beginPath();
- const mx=Math.max(...pts.map(p=>Math.abs(p[1])))||1;
- pts.forEach((p,i)=>{const px=i/(pts.length-1)*w,py=h/2-(p[1]/mx)*(h/2-4);
-  i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();}
-drawVib();refreshMetrics();setInterval(refreshEvents,3000);setInterval(refreshMetrics,3000);
-</script>"""
+    with open(_STATIC, encoding="utf-8") as fh:
+        return fh.read()

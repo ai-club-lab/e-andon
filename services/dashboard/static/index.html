@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chokotei Sentinel — ライン予兆検知</title>
+<style>
+:root{
+  --bg:#f6f7fb; --card:#ffffff; --ink:#1a2030; --muted:#6b7488; --line:#e7e9f0;
+  --brand:#4f46e5; --brand-soft:#eef0fe;
+  --ok:#12a150; --ok-soft:#e7f7ee; --alert:#e5484d; --alert-soft:#fdecec;
+  --warn:#d9860a; --shadow:0 1px 2px rgba(20,30,60,.04),0 6px 20px rgba(20,30,60,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--brand)}
+/* ---- header ---- */
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var(--card);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+.logo{width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;
+  display:grid;place-items:center;font-size:16px}
+.brand small{display:block;font-weight:500;font-size:11px;color:var(--muted);margin-top:1px}
+.spacer{flex:1}
+.status{display:flex;align-items:center;gap:9px;padding:8px 16px;border-radius:999px;
+  font-weight:700;font-size:14px;transition:.25s}
+.status .dot{width:9px;height:9px;border-radius:50%;background:currentColor}
+.status.ok{background:var(--ok-soft);color:var(--ok)}
+.status.alert{background:var(--alert-soft);color:var(--alert)}
+.status.alert .dot{animation:pulse 1s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(229,72,77,.5)}70%{box-shadow:0 0 0 8px rgba(229,72,77,0)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
+.kpis{display:flex;gap:10px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:6px 14px;text-align:center;min-width:78px}
+.kpi b{display:block;font-size:17px;line-height:1.2}
+.kpi span{font-size:11px;color:var(--muted)}
+/* ---- layout ---- */
+main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max-width:1440px;margin:0 auto}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.card-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px}
+.card-h .live{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--alert);font-weight:700}
+.card-h .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--alert);animation:pulse 1s infinite}
+.tag{font-size:11px;font-weight:600;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+/* ---- video ---- */
+.video-wrap{position:relative;background:#0c0e14}
+.video-wrap img{display:block;width:100%;aspect-ratio:1014/634;object-fit:cover}
+.vcap{display:flex;align-items:center;gap:14px;padding:10px 16px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.vcap b{color:var(--ink)}
+.vcap .pill{font-weight:700;border-radius:999px;padding:3px 10px;font-size:12px}
+.vcap .pill.ok{background:var(--ok-soft);color:var(--ok)}
+.vcap .pill.alert{background:var(--alert-soft);color:var(--alert)}
+/* ---- chart ---- */
+.chart-body{padding:8px 12px 14px}
+canvas#vib{width:100%;height:150px;display:block}
+.legend{display:flex;gap:16px;padding:0 16px 12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+/* ---- assistant ---- */
+.assistant{display:flex;flex-direction:column;height:calc(100vh - 132px);min-height:520px}
+.feed{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.feed>*{flex-shrink:0}
+.msg{max-width:92%;font-size:13.5px;line-height:1.5}
+.msg.bot{align-self:flex-start;background:var(--bg);border:1px solid var(--line);border-radius:14px 14px 14px 4px;padding:10px 12px}
+.msg.me{align-self:flex-end;background:var(--brand);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 12px}
+.alert-card{align-self:stretch;border:1px solid var(--alert);border-left:4px solid var(--alert);
+  border-radius:12px;overflow:hidden;background:#fff;animation:slidein .35s ease}
+@keyframes slidein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.alert-card .ah{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--alert-soft);
+  color:var(--alert);font-weight:700;font-size:13px}
+.alert-card .ab{padding:11px 12px;font-size:13px}
+.alert-card .cause{font-weight:700;font-size:14.5px;margin-bottom:6px}
+.conf{display:flex;align-items:center;gap:8px;margin:6px 0}
+.conf .bar{flex:1;height:7px;border-radius:4px;background:var(--line);overflow:hidden}
+.conf .bar i{display:block;height:100%;background:var(--brand)}
+.conf small{color:var(--muted);font-size:11px}
+.evi{font-size:12px;color:var(--muted);background:var(--bg);border-radius:8px;padding:7px 9px;margin-top:6px}
+.thumb{width:100%;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
+.fb{display:flex;gap:8px;margin-top:10px}
+.fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;
+  font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+.fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+.fb button.no:hover{background:var(--alert-soft);border-color:var(--alert);color:var(--alert)}
+.fb button.done{opacity:.5;pointer-events:none}
+.composer{border-top:1px solid var(--line);padding:12px;background:#fff}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.chip{font-size:12px;color:var(--brand);background:var(--brand-soft);border:1px solid #dfe2fd;
+  border-radius:999px;padding:4px 10px;cursor:pointer}
+.inrow{display:flex;gap:8px}
+.inrow input{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
+.inrow input:focus{border-color:var(--brand)}
+.inrow button{border:0;background:var(--brand);color:#fff;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}
+.empty{color:var(--muted);font-size:13px;text-align:center;margin:auto;padding:20px;line-height:1.7}
+@media(max-width:960px){main{grid-template-columns:1fr}.assistant{height:auto;min-height:auto}.feed{max-height:420px}.kpis{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo">◧</div>
+    <div>Chokotei Sentinel<small>ライン予兆検知 × 原因推定エージェント</small></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="kpis">
+    <div class="kpi"><b id="k-fps">–</b><span>検知 fps</span></div>
+    <div class="kpi"><b id="k-ev">0</b><span>異常イベント</span></div>
+    <div class="kpi"><b id="k-acc">–</b><span>AI 正答率</span></div>
+  </div>
+  <div id="status" class="status ok"><span class="dot"></span><span id="status-t">接続中…</span></div>
+</header>
+
+<main>
+  <div class="col">
+    <div class="card">
+      <div class="card-h">ライン映像<span class="tag">俯瞰カメラ</span><span class="live">LIVE</span></div>
+      <div class="video-wrap"><img id="frame" alt="line"></div>
+      <div class="vcap">
+        <span>検知部品 <b id="c-parts">–</b></span>
+        <span id="c-flag" class="pill ok">整列 正常</span>
+        <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h">振動センサー<span class="tag">X軸加速度</span></div>
+      <div class="chart-body"><canvas id="vib" width="900" height="150"></canvas></div>
+      <div class="legend">
+        <span><i style="background:#4f46e5"></i>vibration_x</span>
+        <span><i style="background:#fde2e2;border:1px solid #f5b5b5"></i>異常ウィンドウ</span>
+        <span><i style="background:#12a150"></i>現在時刻</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card assistant">
+      <div class="card-h">AI アシスタント<span class="tag">ADK · Gemini 2.5</span></div>
+      <div class="feed" id="feed">
+        <div class="empty" id="empty">ラインを監視しています。<br>異常を検知すると、推定原因とともにここに通知します。<br>下の入力からログ照会もできます。</div>
+      </div>
+      <div class="composer">
+        <div class="chips">
+          <span class="chip" onclick="ask(this)">温度の傾向は？</span>
+          <span class="chip" onclick="ask(this)">異常時のモータ電流は？</span>
+          <span class="chip" onclick="ask(this)">振動X軸のピークは？</span>
+        </div>
+        <div class="inrow"><input id="q" placeholder="ログについて質問…" onkeydown="if(event.key==='Enter')send()">
+          <button onclick="send()">送信</button></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const feed=$('#feed'), statusEl=$('#status'), statusT=$('#status-t');
+let hasContent=false, lastAlertAt=0;
+
+function setStatus(alert){
+  statusEl.className='status '+(alert?'alert':'ok');
+  statusT.textContent=alert?'異常検知':'正常稼働中';
+}
+function ensureFeed(){ if(!hasContent){ $('#empty')?.remove(); hasContent=true; } }
+function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
+  d.className='msg '+cls; d.textContent=text; feed.appendChild(d); feed.scrollTop=feed.scrollHeight; }
+
+const es=new EventSource('/stream');
+es.addEventListener('frame',e=>{
+  const d=JSON.parse(e.data);
+  $('#frame').src='data:image/jpeg;base64,'+d.image;
+  $('#c-parts').textContent=d.n_parts;
+  $('#c-ts').textContent=d.ts.toFixed(1);
+  $('#k-fps').textContent='5';
+  const flagged=d.flags && d.flags.length>0;
+  const fp=$('#c-flag');
+  if(flagged){ const f=d.flags[0]; fp.className='pill alert'; fp.textContent='⚠ '+f.reason; lastAlertAt=Date.now(); }
+  else { fp.className='pill ok'; fp.textContent='整列 正常'; }
+  // status: alert while an anomaly is on screen or just was
+  setStatus(flagged || (Date.now()-lastAlertAt<2500));
+  for(const n of (d.notifications||[])){ refreshEvents(); }
+});
+
+const shownSig=new Set();
+async function refreshEvents(){
+  const evs=await (await fetch('/events')).json();
+  $('#k-ev').textContent=evs.length;
+  // one card per distinct anomaly (kind + cause), newest first — avoids flooding
+  // the feed with identical cards each time the loop replays the same anomaly.
+  for(const it of evs.slice().reverse()){
+    if(!it.rca) continue;
+    const c=it.rca;
+    const sig=it.event.kind+'|'+c.cause_candidates.join(',');
+    if(shownSig.has(sig)) continue;
+    shownSig.add(sig);
+    const id=it.event.event_id;
+    ensureFeed();
+    const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
+    div.innerHTML=
+      '<div class="ah">⚠ 異常を検知しました — '+it.event.kind+' / '+id+'</div>'+
+      '<div class="ab"><div class="cause">推定原因: '+c.cause_candidates.join(' / ')+'</div>'+
+      '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
+      '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
+      '<div class="evi">根拠: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
+      '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
+      '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しい</button>'+
+      '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 誤り</button></div></div>';
+    feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
+  }
+  refreshMetrics();
+}
+async function refreshMetrics(){
+  const m=await (await fetch('/metrics')).json();
+  $('#k-acc').textContent=m.total?Math.round((m.correct_rate||0)*100)+'%':'–';
+}
+async function fb(btn,id,verdict){
+  let hc=null;
+  if(verdict==='wrong'){ hc=prompt('正しい原因を入力してください'); if(!hc)return; }
+  const r=await (await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({event_id:id,verdict:verdict,human_cause:hc})})).json();
+  const box=btn.closest('.fb'); box.querySelectorAll('button').forEach(b=>b.classList.add('done'));
+  addMsg('bot', r.ok?('フィードバックを記録しました（'+(verdict==='wrong'?('訂正: '+hc):'正しい')+'）。次回の推定に反映します。'):('記録に失敗: '+r.error));
+  refreshMetrics();
+}
+function ask(chip){ $('#q').value=chip.textContent; send(); }
+async function send(){
+  const q=$('#q'); const m=q.value.trim(); if(!m)return;
+  addMsg('me',m); q.value='';
+  const typing=document.createElement('div'); typing.className='msg bot'; typing.textContent='…'; feed.appendChild(typing);
+  try{ const r=await (await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({message:m})})).json(); typing.textContent=r.reply; }
+  catch(e){ typing.textContent='応答の取得に失敗しました。'; }
+  feed.scrollTop=feed.scrollHeight;
+}
+
+async function drawChart(){
+  const d=await (await fetch('/iot?channel=vibration_x&t0=0&t1=10')).json();
+  const cv=$('#vib'), x=cv.getContext('2d'); const W=cv.width,H=cv.height;
+  const padL=34,padR=10,padT=10,padB=20; const w=W-padL-padR,h=H-padT-padB;
+  x.clearRect(0,0,W,H);
+  if(!d.found||!d.points.length){ return; }
+  const pts=d.points, T=10, ax=[5.8,10];
+  const vmax=Math.max(...pts.map(p=>Math.abs(p[1])))||1;
+  const px=t=>padL+(t/T)*w, py=v=>padT+h/2-(v/vmax)*(h/2-4);
+  // anomaly window
+  x.fillStyle='#fdecec'; x.fillRect(px(ax[0]),padT,px(ax[1])-px(ax[0]),h);
+  // gridlines
+  x.strokeStyle='#eef0f4'; x.lineWidth=1; x.fillStyle='#9aa1b2'; x.font='10px sans-serif';
+  for(let g=-1;g<=1;g++){ const yy=py(g*vmax); x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
+    x.fillText((g*vmax).toFixed(1),4,yy+3); }
+  for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
+  // line
+  x.strokeStyle='#4f46e5'; x.lineWidth=1.6; x.beginPath();
+  pts.forEach((p,i)=>{ const X=px(p[0]),Y=py(p[1]); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
+  // current time marker
+  const ct=parseFloat($('#c-ts').textContent)||0;
+  x.strokeStyle='#12a150'; x.lineWidth=1.5; x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
+}
+drawChart(); setInterval(drawChart,900); setInterval(refreshEvents,3000); refreshEvents();
+</script>
+</body>
+</html>
