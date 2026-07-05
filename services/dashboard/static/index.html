@@ -157,7 +157,7 @@ const $=s=>document.querySelector(s);
 const feed=$('#feed'), statusEl=$('#status'), statusT=$('#status-t');
 let hasContent=false, lastAlertAt=0;
 
-const STATUS={running:['ok','正常稼働中'],warning:['warn','⚠ ズレ検知・監視中'],stopped:['alert','⛔ ライン停止（チョコ停）']};
+const STATUS={running:['ok','正常稼働中'],warning:['warn','⚠ ズレ検知・監視中'],stopped:['alert','⛔ ライン停止（チョコ停）'],recovered:['ok','✓ ライン復旧・稼働再開']};
 function setStatus(s){
   const [cls,txt]=STATUS[s]||STATUS.running;
   statusEl.className='status '+cls; statusT.textContent=txt;

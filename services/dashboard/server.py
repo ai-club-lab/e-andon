@@ -118,14 +118,29 @@ async def _frames():
     fi = -1
     pending_ev = None      # the misalignment event seen this loop
     stop_notified = False  # story notification fired for this loop's stop
+    recover_frames = 0     # brief "line recovered" flash after a stop
+    last_jpg = last_n = None
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
+                # choko-tei: hold on the stopped line so the stop is legible,
+                # then recover and resume (a momentary stop, not an abrupt loop).
+                if last_jpg is not None:
+                    for _ in range(8):  # ~4s hold on the stopped frame
+                        held = []
+                        while not notifs.empty():
+                            held.append(notifs.get_nowait())
+                        yield {"event": "frame", "data": json.dumps({
+                            "frame_index": -1, "ts": round(iot_store.STOP_TS, 3),
+                            "n_parts": last_n or 0, "line_status": "stopped",
+                            "flags": [], "notifications": held, "image": last_jpg})}
+                        await asyncio.sleep(0.5)
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 fi = -1
                 pending_ev = None
-                stop_notified = False   # reset per loop (choko-tei recurs)
+                stop_notified = False
+                recover_frames = 6   # show "ライン復旧" for the next ~1.2s
                 continue
             fi += 1
             if fi % step != 0:
@@ -133,6 +148,8 @@ async def _frames():
             ts = fi / fps
             fr = detect_frame(frame, fi, ts)
             annotated_jpg = to_jpeg(annotate(frame, fr))
+            img_b64 = base64.b64encode(annotated_jpg).decode("ascii")
+            last_jpg, last_n = img_b64, len(fr.parts)
             for ev in tracker.update(fr):
                 # Stage 2 (Req 2.5): borderline-band offsets get a Gemini yes/no
                 # confirmation before being treated as anomalies. Clear anomalies
@@ -159,6 +176,9 @@ async def _frames():
                 line_status = "warning"
             else:
                 line_status = "running"
+            if recover_frames > 0 and line_status == "running":
+                line_status = "recovered"   # brief "ライン復旧" flash after a stop
+                recover_frames -= 1
             notes = []
             while not notifs.empty():
                 notes.append(notifs.get_nowait())
@@ -166,8 +186,7 @@ async def _frames():
                 "frame_index": fr.frame_index, "ts": round(fr.ts, 3),
                 "n_parts": len(fr.parts), "line_status": line_status,
                 "flags": [f.model_dump() for f in fr.flags],
-                "notifications": notes,
-                "image": base64.b64encode(annotated_jpg).decode("ascii"),
+                "notifications": notes, "image": img_b64,
             })}
             await asyncio.sleep(period)
     finally:
