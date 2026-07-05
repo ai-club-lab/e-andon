@@ -78,8 +78,8 @@
 
 ## 10. 監査・ガードレール確認
 
-- [ ] 10.1 重い判定が決定論側（CV）にあることの確認と監査ログ経路の検証 — 10.4
-- [ ] 10.2* リージョン規定（モデル=us-central1／基盤=asia-northeast1）の設定テスト — 10.6
+- [x] 10.1 重い判定が決定論側（CV）＋監査ログ経路（anomaly_events/rca_results.evidence）を検証・明文化（docs/audit.md）— 10.4 ✅
+- [x] 10.2 リージョン規定（モデル=us-central1／基盤=asia-northeast1）を test_guardrails で検証 — 10.6 ✅
 
 ---
 
