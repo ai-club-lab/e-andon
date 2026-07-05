@@ -116,32 +116,26 @@ async def _frames():
     step = max(1, round(fps / DETECTION.sample_fps))
     period = step / fps
     fi = -1
-    pending_ev = None      # the misalignment event seen this loop
-    stop_notified = False  # story notification fired for this loop's stop
-    recover_frames = 0     # brief "line recovered" flash after a stop
+    pending_ev = None      # the misalignment event seen this playthrough
+    stop_notified = False  # story notification fired for the stop
     last_jpg = last_n = None
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
-                # choko-tei: hold on the stopped line so the stop is legible,
-                # then recover and resume (a momentary stop, not an abrupt loop).
-                if last_jpg is not None:
-                    for _ in range(8):  # ~4s hold on the stopped frame
-                        held = []
-                        while not notifs.empty():
-                            held.append(notifs.get_nowait())
-                        yield {"event": "frame", "data": json.dumps({
-                            "frame_index": -1, "ts": round(iot_store.STOP_TS, 3),
-                            "n_parts": last_n or 0, "line_status": "stopped",
-                            "flags": [], "notifications": held, "image": last_jpg})}
-                        await asyncio.sleep(0.5)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                fi = -1
-                pending_ev = None
-                stop_notified = False
-                recover_frames = 6   # show "ライン復旧" for the next ~1.2s
-                continue
+                # play once, then hold on the stopped line indefinitely — the
+                # story ends stopped (choko-tei). Replaying is a fresh /stream
+                # connection from the client (no auto-loop).
+                while last_jpg is not None:
+                    held = []
+                    while not notifs.empty():
+                        held.append(notifs.get_nowait())
+                    yield {"event": "frame", "data": json.dumps({
+                        "frame_index": -1, "ts": round(iot_store.STOP_TS, 3),
+                        "n_parts": last_n or 0, "line_status": "stopped",
+                        "flags": [], "notifications": held, "image": last_jpg})}
+                    await asyncio.sleep(1.0)
+                break
             fi += 1
             if fi % step != 0:
                 continue
@@ -176,9 +170,6 @@ async def _frames():
                 line_status = "warning"
             else:
                 line_status = "running"
-            if recover_frames > 0 and line_status == "running":
-                line_status = "recovered"   # brief "ライン復旧" flash after a stop
-                recover_frames -= 1
             notes = []
             while not notifs.empty():
                 notes.append(notifs.get_nowait())
