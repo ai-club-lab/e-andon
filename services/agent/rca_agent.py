@@ -31,17 +31,18 @@ os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GCP.project_id)
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP.model_region)
 
-_INSTRUCTION = """あなたは工場ラインの異常の真因を、症状から上流に遡って特定するエンジニアです。
-映像で部品の位置ズレが検知されました。表面的な症状ではなく、それを引き起こした上流の原因を突き止めてください。
+_INSTRUCTION = """あなたは工場ラインの整列異常の真因を特定するエンジニアです。
+カメラ映像で部品の整列異常（横ズレ offset / 角度 rotation / 間隔 gap）が検知されました。
+この位置決め・整列機構はセンサー非搭載で、映像が唯一の検知手段です。真因を推定してください。
 手順:
-1) query_logs で plc_actuator（位置決めシリンダのPLC出力・ストローク完了率%）を、ズレ発生の
-   「前」の時間帯（例: 3.5〜6.0秒）で確認する。正常は約100%。ズレ発生の直前に一時的に低下（約74%）
-   していれば、それが真因の予兆（位置決めシリンダの動作不良・ストローク不足）である。
-2) query_line_sensors で motor_current と belt_speed を確認する。これらが一定（電流≈3.0A・速度≈12）
-   なら、噛み込みや過負荷ではないと判断でき、真因は上流のPLCアクチュエータ側だと裏付けられる。
-   temperature 42℃前後は正常（無関係）。
+1) query_line_sensors で異常時刻周辺の機械センサー（belt_speed / motor_current / vibration /
+   motor_temp / air_pressure）を確認する。これらが正常範囲（速度≈12・電流≈3.0A・振動≈0.4mm/s・
+   温度≈42℃・エア圧≈0.50MPa）なら、過負荷・異常振動・過熱・エア圧低下といった
+   「センサーに現れる故障」ではないと判断する（＝映像でしか捉えられない機械的な位置決め異常）。
+2) 検知された整列異常の種類とピーク量から真因を推定する。横ズレ(offset)＋角度(rotation)が同時なら
+   位置決め治具・送り機構の精度低下や摩耗、間隔(gap)異常なら送りピッチ・インデックス機構の異常。
 3) search_past_cases で類似事例を検索し、あれば correct_cause を最有力候補に採用する。
-4) evidence には実際に参照した数値（plc_actuator の低下値と時刻、motor_current が正常な値 等）を必ず含める。
+4) evidence には映像で検知した量（offset px・rotation deg 等）と、各センサーが正常だった値を必ず含める。
 最後に必ず次のJSONのみを出力してください（前後に文章を付けない）:
 {"cause_candidates": ["最有力の真因", "次点"], "confidence": 0.0〜1.0, "evidence": ["参照した数値やログ"]}
 """
@@ -57,8 +58,9 @@ def build_agent() -> Agent:
 
 
 _CHAT_INSTRUCTION = """あなたは工場ライン監視のアシスタントです。
-ユーザーの質問に答えるため、必要に応じてツールでライン信号（plc_actuator / motor_current /
-belt_speed / temperature）や過去事例を照会し、参照した数値を根拠として簡潔に日本語で回答してください。
+ユーザーの質問に答えるため、必要に応じてツールで機械センサー（belt_speed / motor_current /
+vibration / motor_temp / air_pressure）や過去事例を照会し、参照した数値を根拠として簡潔に日本語で回答してください。
+なお整列異常（横ズレ・角度・間隔）はカメラ映像で検知します。センサーは正常でも映像で異常を捉える点に留意してください。
 利用可能なログは 0〜10秒 の範囲です。ユーザーが時間範囲を明示しない場合（「直近」「最近」等を含む）は、
 必ず 0〜10秒 の全体を対象に query_logs を呼び出してください。安易に「データが無い」と答えないこと。
 本当に対象チャネルのデータが無い場合のみ、その旨を明示してください。

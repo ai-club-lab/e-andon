@@ -58,8 +58,13 @@ main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max
 #replay.hot{border-color:var(--alert);color:var(--alert);background:var(--alert-soft)}
 /* ---- chart ---- */
 .chart-body{padding:8px 12px 14px}
-canvas#plc,canvas#cur{width:100%;display:block}
-canvas#plc{height:132px}canvas#cur{height:84px}
+canvas#sig{width:100%;height:150px;display:block}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.12s}
+.tab:hover{border-color:var(--brand)}
+.tab.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.tab.vision.on{background:#4f46e5;border-color:#4f46e5}
 .legend{display:flex;gap:16px;padding:0 16px 12px;font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 /* ---- assistant ---- */
@@ -107,8 +112,9 @@ canvas#plc{height:132px}canvas#cur{height:84px}
   </div>
   <div class="spacer"></div>
   <div class="kpis">
-    <div class="kpi"><b id="k-fps">–</b><span>検知 fps</span></div>
-    <div class="kpi"><b id="k-ev">0</b><span>異常イベント</span></div>
+    <div class="kpi"><b id="k-off">–</b><span>整列ズレ px</span></div>
+    <div class="kpi"><b id="k-ang">–</b><span>角度ズレ °</span></div>
+    <div class="kpi"><b id="k-gap">–</b><span>ピッチ偏差</span></div>
     <div class="kpi"><b id="k-acc">–</b><span>AI 正答率</span></div>
   </div>
   <div id="status" class="status ok"><span class="dot"></span><span id="status-t">接続中…</span></div>
@@ -127,23 +133,11 @@ canvas#plc{height:132px}canvas#cur{height:84px}
       </div>
     </div>
     <div class="card">
-      <div class="card-h">PLC出力<span class="tag">位置決めシリンダ · ストローク完了率 [%]</span>
-        <span id="belt-badge" class="tag" style="margin-left:auto">ベルト: 運転中</span></div>
-      <div class="chart-body"><canvas id="plc" width="900" height="132"></canvas></div>
-      <div class="legend">
-        <span><i style="background:#4f46e5"></i>plc_actuator</span>
-        <span><i style="background:#fff0d6;border:1px solid #f0c674"></i>出力低下（予兆）</span>
-        <span><i style="background:#e5484d"></i>ズレ検知</span>
-        <span><i style="background:#12a150"></i>現在時刻</span>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-h">モータ電流<span class="tag">搬送モータ [A] · 一定＝過負荷なし</span></div>
-      <div class="chart-body"><canvas id="cur" width="900" height="84"></canvas></div>
-      <div class="legend">
-        <span><i style="background:#7a8194"></i>motor_current</span>
-        <span><i style="background:#12a150"></i>現在時刻</span>
-      </div>
+      <div class="card-h">計測トレンド<span class="tag">画像メトリクス & センサー · クリックで切替</span>
+        <span id="belt-badge" class="tag" style="margin-left:auto">ライン: 運転中</span></div>
+      <div class="tabs" id="tabs"></div>
+      <div class="chart-body"><canvas id="sig" width="900" height="150"></canvas></div>
+      <div class="legend" id="siglegend"></div>
     </div>
   </div>
 
@@ -186,24 +180,25 @@ function onFrame(e){
   $('#frame').src='data:image/jpeg;base64,'+d.image;
   $('#c-parts').textContent=d.n_parts;
   $('#c-ts').textContent=d.ts.toFixed(1);
-  $('#k-fps').textContent='5';
   const flagged=d.flags && d.flags.length>0;
   const ls=d.line_status||'running';
   if(flagged) anomalySeen=true;
   const fp=$('#c-flag');
-  if(ls==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ベルト停止'; }
+  if(ls==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ライン停止'; }
   else if(flagged){ fp.className='pill warn'; fp.textContent='⚠ '+d.flags[0].reason; }
   else { fp.className='pill ok'; fp.textContent='整列 正常'; }
-  const bb=$('#belt-badge'); bb.textContent = ls==='stopped'?'ベルト: 停止':'ベルト: 運転中';
+  $('#belt-badge').textContent = ls==='stopped'?'ライン: 停止':'ライン: 運転中';
   $('#replay').classList.toggle('hot', ls==='stopped');   // highlight replay once stopped
   setStatus(ls);
+  if(d.metrics){ updateVisionKPIs(d.metrics); if(d.frame_index>=0) pushMetric(d.ts,d.metrics); }
   for(const n of (d.notifications||[])){ addAlert(n); }
 }
 function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',onFrame); }
 // Plays once then holds on the stop; replay = a fresh stream from the start.
 function replay(){
   if(es) es.close();
-  anomalySeen=false; anomalyCount=0; shownSig.clear(); $('#k-ev').textContent='0';
+  anomalySeen=false; anomalyCount=0; shownSig.clear();
+  resetMetrics();
   document.querySelectorAll('.alert-card').forEach(el=>el.remove());
   $('#replay').classList.remove('hot');
   connect();
@@ -225,7 +220,7 @@ async function addAlert(n){
   const sig=it.event.kind+'|'+c.cause_candidates.join(',');
   if(shownSig.has(sig)) return;
   shownSig.add(sig);
-  anomalyCount++; $('#k-ev').textContent=anomalyCount;
+  anomalyCount++;
   ensureFeed();
   const id=it.event.event_id;
   const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
@@ -265,51 +260,74 @@ async function send(){
   feed.scrollTop=feed.scrollHeight;
 }
 
-const MISALIGN_TS=5.8, PRECURSOR=[4.0,5.6];
 const curT=()=>parseFloat($('#c-ts').textContent)||0;
 
-// PLC出力（位置決めシリンダ）: the hero — its dip BEFORE the misalignment is the
-// root-cause precursor. Line + amber precursor band + red misalignment marker.
-async function drawPLC(){
-  const d=await (await fetch('/iot?channel=plc_actuator&t0=0&t1=10')).json();
-  const cv=$('#plc'); if(!cv)return; const x=cv.getContext('2d'), W=cv.width,H=cv.height;
-  const padL=34,padR=10,padT=10,padB=20,w=W-padL-padR,h=H-padT-padB;
-  x.clearRect(0,0,W,H); if(!d.found||!d.points.length)return;
-  const pts=d.points,T=10,vmax=110, ct=curT();
-  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
-  x.strokeStyle='#eef0f4';x.lineWidth=1;x.fillStyle='#9aa1b2';x.font='10px sans-serif';
-  [0,50,100].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.fillText(v,12,yy+3);});
-  for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
-  if(ct>PRECURSOR[0]){ x.fillStyle='#fff0d6'; const e=Math.min(PRECURSOR[1],ct);
-    x.fillRect(px(PRECURSOR[0]),padT,px(e)-px(PRECURSOR[0]),h);
-    if(ct>=PRECURSOR[0]+0.4){ x.fillStyle='#c98a1a';x.font='bold 10px sans-serif';x.fillText('予兆',px(PRECURSOR[0])+4,padT+12);} }
-  const vis=pts.filter(p=>p[0]<=ct);
-  x.strokeStyle='#4f46e5';x.lineWidth=1.8;x.beginPath();
-  vis.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
-  if(ct>=MISALIGN_TS){ x.strokeStyle='#e5484d';x.lineWidth=1.5;x.setLineDash([3,3]);
-    x.beginPath();x.moveTo(px(MISALIGN_TS),padT);x.lineTo(px(MISALIGN_TS),padT+h);x.stroke();x.setLineDash([]);
-    x.fillStyle='#e5484d';x.font='bold 10px sans-serif';x.fillText('ズレ検知',px(MISALIGN_TS)+3,padT+12); }
-  x.strokeStyle='#12a150';x.lineWidth=1.5;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
-}
+// Signals: 3 image-derived geometric metrics (the hero — accumulated live from
+// the stream) + 5 machine sensors (context, fetched from /iot). Click a tab to
+// chart any of them. Vision metrics carry a tolerance line.
+const VISION={
+  offset:{label:'整列ズレ',unit:'px',tol:12,color:'#4f46e5'},
+  angle: {label:'角度ズレ',unit:'°', tol:6, color:'#7c3aed'},
+  gap:   {label:'ピッチ偏差',unit:'', tol:0.30,color:'#0ea5a3'},
+};
+const SENSORS={
+  belt_speed:   {label:'ベルト速度',unit:'m/min',color:'#7a8194'},
+  motor_current:{label:'モータ電流',unit:'A',    color:'#7a8194'},
+  vibration:    {label:'振動',      unit:'mm/s', color:'#7a8194'},
+  motor_temp:   {label:'モータ温度',unit:'℃',    color:'#7a8194'},
+  air_pressure: {label:'エア圧',    unit:'MPa',  color:'#7a8194'},
+};
+const hist={t:[],offset:[],angle:[],gap:[]};
+const sensorCache={};
+let activeSig='offset';
 
-// モータ電流: flat while running (constant = no overload) — the foil that lets
-// the agent rule out a jam and trace the cause upstream to the PLC.
-async function drawCurrent(){
-  const d=await (await fetch('/iot?channel=motor_current&t0=0&t1=10')).json();
-  const cv=$('#cur'); if(!cv)return; const x=cv.getContext('2d'), W=cv.width,H=cv.height;
-  const padL=34,padR=10,padT=8,padB=16,w=W-padL-padR,h=H-padT-padB;
-  x.clearRect(0,0,W,H); if(!d.found||!d.points.length)return;
-  const pts=d.points,T=10,vmax=(Math.max(...pts.map(p=>p[1]))*1.4)||1, ct=curT();
+function resetMetrics(){ hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; updateVisionKPIs({offset:0,angle:0,gap:0}); }
+function pushMetric(ts,m){ hist.t.push(ts);hist.offset.push(m.offset);hist.angle.push(m.angle);hist.gap.push(m.gap);
+  if(activeSig in VISION) drawSignal(); }
+function updateVisionKPIs(m){
+  set('#k-off',m.offset,VISION.offset.tol); set('#k-ang',m.angle,VISION.angle.tol); set('#k-gap',m.gap,VISION.gap.tol);
+}
+function set(id,v,tol){ const el=$(id); if(!el)return; el.textContent=(typeof v==='number'?v:0); el.style.color=v>tol?'var(--alert)':''; }
+
+function buildTabs(){
+  const tabs=$('#tabs'); tabs.innerHTML='';
+  const add=(key,cfg,vision)=>{ const b=document.createElement('button');
+    b.className='tab'+(vision?' vision':'')+(key===activeSig?' on':''); b.textContent=cfg.label;
+    b.onclick=()=>{activeSig=key; buildTabs(); drawSignal();}; tabs.appendChild(b); };
+  for(const k in VISION) add(k,VISION[k],true);
+  for(const k in SENSORS) add(k,SENSORS[k],false);
+}
+async function drawSignal(){
+  const cv=$('#sig'); if(!cv)return; const x=cv.getContext('2d'),W=cv.width,H=cv.height;
+  const padL=38,padR=12,padT=12,padB=20,w=W-padL-padR,h=H-padT-padB,T=10,ct=curT();
+  const vision=activeSig in VISION, cfg=vision?VISION[activeSig]:SENSORS[activeSig];
+  let pts;
+  if(vision){ pts=hist.t.map((t,i)=>[t,hist[activeSig][i]]); }
+  else { if(!sensorCache[activeSig]){ const d=await (await fetch('/iot?channel='+activeSig+'&t0=0&t1=10')).json();
+      sensorCache[activeSig]=d.found?d.points:[]; } pts=sensorCache[activeSig].filter(p=>p[0]<=ct); }
+  x.clearRect(0,0,W,H);
+  const tol=cfg.tol||0, maxv=Math.max(tol*1.4, ...pts.map(p=>p[1]), vision?1:0.1);
+  const vmax=maxv*1.15||1;
   const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
   x.strokeStyle='#eef0f4';x.lineWidth=1;x.fillStyle='#9aa1b2';x.font='10px sans-serif';
-  [0,vmax/2,vmax].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.fillText(v.toFixed(1),8,yy+3);});
-  const vis=pts.filter(p=>p[0]<=ct);
-  x.strokeStyle='#7a8194';x.lineWidth=1.6;x.beginPath();
-  vis.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
-  x.strokeStyle='#12a150';x.lineWidth=1.5;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
+  [0,vmax/2,vmax].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
+    x.fillText(v.toFixed(vmax<3?1:0),4,yy+3);});
+  for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
+  if(vision && tol){ const yy=py(tol); x.strokeStyle='#f0a0a0';x.setLineDash([4,3]);x.lineWidth=1;
+    x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.setLineDash([]);
+    x.fillStyle='#e5484d';x.fillText('許容',W-padR-26,yy-3); }
+  x.strokeStyle=cfg.color;x.lineWidth=1.8;x.beginPath();
+  pts.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
+  if(ct>0){ x.strokeStyle='#12a150';x.lineWidth=1.4;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke(); }
+  const cur=pts.length?pts[pts.length-1][1]:0, bad=vision&&tol&&cur>tol;
+  $('#siglegend').innerHTML='<span><i style="background:'+cfg.color+'"></i>'+cfg.label
+    +' <b style="color:'+(bad?'var(--alert)':'var(--ink)')+'">'+cur+(cfg.unit?' '+cfg.unit:'')+'</b></span>'
+    +(vision?'<span style="color:var(--muted)">画像から算出（許容 '+tol+(cfg.unit?cfg.unit:'')+'）</span>'
+            :'<span style="color:var(--muted)">機械センサー · 正常範囲</span>');
 }
-function drawCharts(){ drawPLC(); drawCurrent(); }
-drawCharts(); setInterval(drawCharts,500); setInterval(refreshMetrics,4000);
+buildTabs(); resetMetrics(); drawSignal();
+setInterval(()=>{ if(!(activeSig in VISION)) drawSignal(); },500);
+setInterval(refreshMetrics,4000);
 </script>
 </body>
 </html>

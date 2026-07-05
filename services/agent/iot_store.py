@@ -1,13 +1,11 @@
 """Synthetic IoT generation + query store (Req 4, design.md §4.5).
 
-Predictive-maintenance model for the choko-tei scenario: the positioning
-actuator (PLC-controlled) briefly under-strokes — its PLC output drops from
-100% to ~74% during [4.0, 5.6]s — which mis-positions the part. The visual
-misalignment appears ~1.8s later (~5.8s); the line is then stopped (~9.5s).
-
-Key point (physical realism): the belt motor current stays CONSTANT — a single
-mis-positioned part does not load the belt. The root cause is upstream in the
-PLC actuator output, not the motor. Temperature is a normal decoy.
+The anomaly in this system is GEOMETRIC (part alignment / angle / pitch) and is
+detected by the camera — the positioning mechanism itself is not instrumented.
+So the machine sensors here are a normal-running context bank: belt speed, motor
+current, vibration, motor temperature, air pressure. They stay in-range during
+operation (dropping only when the line stops), which lets the RCA agent confirm
+"no sensor-detectable fault" and point upstream to the mechanical positioner.
 
 Local-first: persists to a JSONL file so query works without Cloud SQL.
 """
@@ -23,38 +21,31 @@ from chokotei_shared import IoTChannel, IoTReading
 
 STORE = Path(os.environ.get("IOT_STORE", "data/iot/readings.jsonl"))
 _SAMPLE_HZ = 50.0
-STOP_TS = 9.5                 # line stops here (choko-tei); aligns with the video end-stop
-MISALIGN_TS = 5.8            # visual misalignment appears here
-PLC_PRECURSOR = (4.0, 5.6)  # actuator PLC output dips BEFORE the misalignment (root cause)
-_CHANNELS: list[IoTChannel] = ["plc_actuator", "motor_current", "belt_speed", "temperature"]
+STOP_TS = 9.5   # line stops here (choko-tei); aligns with the video end-stop
+_CHANNELS: list[IoTChannel] = [
+    "belt_speed", "motor_current", "vibration", "motor_temp", "air_pressure",
+]
 
 
 def generate(duration_s: float = 10.0, stop_ts: float = STOP_TS, seed: int = 42) -> list[IoTReading]:
-    """Generate readings for the whole timeline. Deterministic given ``seed``.
+    """Generate a normal-running sensor bank (Req 4.3).
 
-    Causal chain (Req 4.3): plc_actuator dip (4.0-5.6s) -> part misalignment
-    (~5.8s) -> line stop (9.5s). motor_current/belt_speed stay flat while
-    running, so the agent can rule out overload and trace the PLC precursor.
+    All channels stay in their normal band while running; belt_speed and
+    motor_current fall to ~0 when the line stops. No anomaly is injected here —
+    the alignment anomaly lives in the vision metrics, not the sensors.
     """
     rng = np.random.default_rng(seed)
     n = int(duration_s * _SAMPLE_HZ)
-    p0, p1 = PLC_PRECURSOR
     out: list[IoTReading] = []
     for i in range(n):
         ts = i / _SAMPLE_HZ
         running = ts < stop_ts
-        # positioning-actuator PLC output (stroke completion %) — the precursor
-        if not running:
-            plc = 0.0
-        elif p0 <= ts <= p1:
-            plc = 74.0 + rng.normal(0.0, 1.2)   # under-stroke: root cause
-        else:
-            plc = min(100.0, 99.4 + rng.normal(0.0, 0.4))
         vals = {
-            "plc_actuator": plc,
-            "motor_current": (3.0 + rng.normal(0.0, 0.05)) if running else 0.2 + rng.normal(0.0, 0.02),
-            "belt_speed": (12.0 + rng.normal(0.0, 0.08)) if running else 0.0,
-            "temperature": 42.0 + rng.normal(0.0, 0.2),
+            "belt_speed": (12.0 + rng.normal(0.0, 0.08)) if running else 0.0,      # m/min
+            "motor_current": (3.0 + rng.normal(0.0, 0.05)) if running else 0.2,    # A
+            "vibration": 0.38 + rng.normal(0.0, 0.03),                             # mm/s (ISO, low)
+            "motor_temp": 42.0 + rng.normal(0.0, 0.2),                             # C
+            "air_pressure": 0.50 + rng.normal(0.0, 0.004),                         # MPa
         }
         for ch in _CHANNELS:
             out.append(IoTReading(ts=round(ts, 4), channel=ch, value=round(float(vals[ch]), 4)))

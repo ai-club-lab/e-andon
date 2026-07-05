@@ -88,12 +88,13 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
         await asyncio.sleep(0.3)
     if rca_d:
         cause = "、".join(rca_d["cause_candidates"][:2])
-        text = (f"⚠ 部品の位置ズレを検知し、ラインを停止しました。確認をお願いします。"
-                f"ログを遡ると、ズレ発生の直前に位置決めシリンダのPLC出力に異常の予兆がありました。"
+        text = (f"⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。"
+                f"各機械センサー（速度・電流・振動・温度・エア圧）は正常のため、"
+                f"センサーに現れない位置決め機構側の問題と考えられます。"
                 f"真因は「{cause}」と推定されます（確信度 {rca_d['confidence']:.0%}）。"
                 f"根拠: {'; '.join(rca_d['evidence'][:2])}")
     else:
-        text = "⚠ 部品の位置ズレを検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
+        text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
     await notifs.put({"event_id": ev.event_id, "text": text})
 
 
@@ -104,6 +105,29 @@ async def _store_frame(event_id: str, jpg: bytes) -> None:
         await asyncio.to_thread(
             db.execute, "UPDATE anomaly_events SET rep_frame_uri=%s WHERE event_id=%s",
             (uri, event_id))
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return 0.0 if n == 0 else (s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2)
+
+
+def _vision_metrics(fr) -> dict:
+    """Per-frame geometric quality from the camera: alignment offset (px),
+    angle deviation (deg), pitch uniformity (max gap ratio deviation)."""
+    parts = fr.parts
+    if not parts:
+        return {"offset": 0.0, "angle": 0.0, "gap": 0.0}
+    base_y = fr.baseline_y or _median([p.cy for p in parts])
+    base_a = fr.median_angle
+    offset = max(abs(p.cy - base_y) for p in parts)
+    angle = max(abs(p.angle - base_a) for p in parts)
+    cxs = sorted(p.cx for p in parts)
+    gaps = [cxs[i + 1] - cxs[i] for i in range(len(cxs) - 1)]
+    med = _median(gaps)
+    gap = max(abs(g / med - 1.0) for g in gaps) if gaps and med else 0.0
+    return {"offset": round(offset, 1), "angle": round(angle, 1), "gap": round(gap, 2)}
 
 
 async def _frames():
@@ -120,6 +144,7 @@ async def _frames():
     pending_ev = None      # the misalignment event seen this playthrough
     stop_notified = False  # story notification fired for the stop
     last_jpg = last_n = None
+    last_metrics = {"offset": 0.0, "angle": 0.0, "gap": 0.0}
     try:
         while True:
             ok, frame = cap.read()
@@ -134,7 +159,8 @@ async def _frames():
                     yield {"event": "frame", "data": json.dumps({
                         "frame_index": -1, "ts": round(iot_store.STOP_TS, 3),
                         "n_parts": last_n or 0, "line_status": "stopped",
-                        "flags": [], "notifications": held, "image": last_jpg})}
+                        "flags": [], "notifications": held, "image": last_jpg,
+                        "metrics": last_metrics})}
                     await asyncio.sleep(1.0)
                 break
             fi += 1
@@ -145,6 +171,7 @@ async def _frames():
             annotated_jpg = to_jpeg(annotate(frame, fr))
             img_b64 = base64.b64encode(annotated_jpg).decode("ascii")
             last_jpg, last_n = img_b64, len(fr.parts)
+            last_metrics = _vision_metrics(fr)
             for ev in tracker.update(fr):
                 # Stage 2 (Req 2.5): borderline-band offsets get a Gemini yes/no
                 # confirmation before being treated as anomalies. Clear anomalies
@@ -179,6 +206,7 @@ async def _frames():
                 "n_parts": len(fr.parts), "line_status": line_status,
                 "flags": [f.model_dump() for f in fr.flags],
                 "notifications": notes, "image": img_b64,
+                "metrics": last_metrics,
             })}
             await asyncio.sleep(period)
     finally:
@@ -238,7 +266,7 @@ async def feedback(req: Request) -> dict:
     if verdict == "wrong":
         ev = rec["event"]
         # reflux: make the corrected case searchable + let next occurrence re-infer
-        summary = f"位置決めシリンダPLC出力の予兆→部品の{ev['kind']}位置ずれ・ライン停止 {human_cause}"
+        summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {human_cause}"
         pc.add(FeedbackCase(summary=summary, correct_cause=human_cause, source_event_id=event_id))
         state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"ok": True, "metrics": feedback_store.metrics()}

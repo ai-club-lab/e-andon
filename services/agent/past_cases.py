@@ -17,10 +17,10 @@ from chokotei_shared import FeedbackCase, db
 STORE = Path(os.environ.get("CASES_STORE", "data/cases/past_cases.jsonl"))
 
 _SEED = [
-    FeedbackCase(summary="ズレ発生直前に位置決めシリンダのPLC出力が低下し部品が位置ずれ、電流は正常",
-                 correct_cause="位置決めシリンダの動作不良（ストローク不足）", source_event_id="seed-1"),
-    FeedbackCase(summary="位置決めアクチュエータの応答遅れで部品が定位置に届かず位置ずれ",
-                 correct_cause="位置決めシリンダのエア圧低下による動作遅延", source_event_id="seed-2"),
+    FeedbackCase(summary="映像で横ズレと角度ずれを同時検知、各センサーは正常。位置決め治具の精度低下",
+                 correct_cause="位置決め治具の摩耗・ガタによる整列精度低下", source_event_id="seed-1"),
+    FeedbackCase(summary="部品の間隔が不均一（ピッチ異常）、センサーは正常。送りインデックス機構の異常",
+                 correct_cause="送りインデックス機構のピッチずれ", source_event_id="seed-2"),
 ]
 
 
