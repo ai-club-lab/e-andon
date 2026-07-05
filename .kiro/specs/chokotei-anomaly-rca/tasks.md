@@ -26,8 +26,8 @@
 - [x] 3.1 PoC（`docs/poc/detect_v2.py`）を `services/detector` の再利用モジュールへ昇格（`detect_frame -> FrameResult`）— 2.1, 2.2, 2.3, 2.4
 - [x] 3.2 判定根拠の構造化記録（FlagDetail に数値・シグナル種別）— 2.7, 10.4
 - [x] 3.3 時系列トラッキングで同一変位部品を1 `AnomalyEvent` に集約（新規確定で一度だけ発火、閾値未満継続で close）— 3.1, 3.2, 3.3, 3.4
-- [ ] 3.4 代表フレームを Cloud Storage(private) に保存し `rep_frame_uri` を格納 — 3.2, 5.2  ⏸cloud
-- [ ] 3.5 境界帯のみ Gemini Vision で確認（`in_confirm_band` は実装済、実呼び出しは残）— 2.5, (研究#4)
+- [x] 3.4 代表フレームを Cloud Storage(private `fhack26-aiclub-frames`) に保存し rep_frame_uri 格納＋/frame プロキシ — 3.2, 5.2 ✅GCS往復
+- [x] 3.5 境界帯のみ Gemini Vision 確認（`vision_confirm.confirm_with_gemini`, us-central1, fail-open）— 2.5 ✅異常YES/正常NO
 - [x] 3.6 (P) 検出部品<4 のフレームを対象外化＋記録 — 2.6
 - [x] 3.7 トラッキングと閾値判定のテスト（正常でfalse positiveゼロ／異常イベント1件）— 2, 3 ✅241f/first139/1event/peak17.5
 

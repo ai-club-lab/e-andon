@@ -19,13 +19,16 @@ from sse_starlette.sse import EventSourceResponse
 
 import event_store
 import feedback_store
+import frames_store
 import iot_store
 import past_cases as pc
+from fastapi.responses import Response
 from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db
 from detection import detect_frame
 from rca_agent import answer_query, infer
 from render import annotate, to_jpeg
 from tracking import EventTracker
+from vision_confirm import confirm_with_gemini
 
 VIDEO = os.environ.get("SAMPLE_VIDEO", "video/factory_01.mov")
 app = FastAPI(title="chokotei-dashboard")
@@ -78,6 +81,15 @@ async def _infer_and_notify(ev: AnomalyEvent) -> None:
     await state.notifs.put({"event_id": ev.event_id, "text": text})
 
 
+async def _store_frame(event_id: str, jpg: bytes) -> None:
+    """Upload the representative frame to Cloud Storage and record its URI (Req 3.4)."""
+    uri = await asyncio.to_thread(frames_store.upload_frame, event_id, jpg)
+    if uri and db.enabled():
+        await asyncio.to_thread(
+            db.execute, "UPDATE anomaly_events SET rep_frame_uri=%s WHERE event_id=%s",
+            (uri, event_id))
+
+
 async def _frames():
     cap = cv2.VideoCapture(VIDEO)
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
@@ -95,9 +107,21 @@ async def _frames():
             if fi % step != 0:
                 continue
             fr = detect_frame(frame, fi, fi / fps)
+            annotated_jpg = to_jpeg(annotate(frame, fr))
             for ev in state.tracker.update(fr):
+                # Stage 2 (Req 2.5): borderline-band offsets get a Gemini yes/no
+                # confirmation before being treated as anomalies. Clear anomalies
+                # (peak above the band) skip it. Rare -> off the hot path.
+                if ev.kind == "offset" and DETECTION.band_low <= ev.peak_magnitude <= DETECTION.band_high:
+                    cand = next((f for f in fr.flags if f.kind == "offset"
+                                 and abs(f.magnitude - ev.peak_magnitude) < 0.6), None)
+                    if cand is not None and not await asyncio.to_thread(
+                            confirm_with_gemini, frame, cand.cx, cand.cy):
+                        continue  # Gemini judged it aligned -> suppress
                 state.events[ev.event_id] = {"event": ev.model_dump(), "rca": None}
                 event_store.save_event(ev)
+                if frames_store.enabled():
+                    asyncio.create_task(_store_frame(ev.event_id, annotated_jpg))
                 asyncio.create_task(_infer_and_notify(ev))
             notes = []
             while not state.notifs.empty():
@@ -107,7 +131,7 @@ async def _frames():
                 "n_parts": len(fr.parts),
                 "flags": [f.model_dump() for f in fr.flags],
                 "notifications": notes,
-                "image": base64.b64encode(to_jpeg(annotate(frame, fr))).decode("ascii"),
+                "image": base64.b64encode(annotated_jpg).decode("ascii"),
             })}
             await asyncio.sleep(period)
     finally:
@@ -178,6 +202,15 @@ async def metrics() -> dict:
     return feedback_store.metrics()
 
 
+@app.get("/frame/{event_id}")
+async def frame_img(event_id: str) -> Response:
+    """Proxy the stored representative frame (bucket stays private, Req 3.4)."""
+    data = await asyncio.to_thread(frames_store.get_frame_bytes, event_id)
+    if data is None:
+        return Response(status_code=404)
+    return Response(content=data, media_type="image/jpeg")
+
+
 @app.on_event("startup")
 async def _seed_iot() -> None:
     """Ensure deterministic IoT seed exists per instance (ephemeral fs)."""
@@ -241,6 +274,7 @@ async function refreshEvents(){const r=await fetch('/events');const evs=await r.
   div.innerHTML='<b>'+e.event_id+'</b> '+e.kind+' peak='+e.peak_magnitude.toFixed(1)+
    (it.rca?'<div class=rca>推定: '+it.rca.cause_candidates.join(', ')+
     ' ('+Math.round(it.rca.confidence*100)+'%)</div>'+
+    '<img src="/frame/'+e.event_id+'" style="max-width:100%;margin-top:4px;border-radius:4px" onerror="this.remove()">'+
     '<div style=margin-top:4px><button onclick="fb(\\''+e.event_id+'\\',\\'correct\\')">正しい</button> '+
     '<button onclick="fb(\\''+e.event_id+'\\',\\'wrong\\')">誤り</button></div>'
     :'<div class=rca>推論中…</div>');
