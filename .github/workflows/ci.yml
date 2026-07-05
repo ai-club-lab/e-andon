@@ -26,8 +26,9 @@ jobs:
           python -m pip install -U pip pytest
           pip install -r requirements.txt
       - name: Offline tests (deterministic CV + guardrails)
-        working-directory: services/detector
-        run: python -m pytest -q test_detection.py test_guardrails.py
+        env:
+          PYTHONPATH: services/detector   # tests open video/ by a repo-root-relative path
+        run: python -m pytest -q services/detector/test_detection.py services/detector/test_guardrails.py
       - name: Compile sanity (all services)
         run: |
           python -m py_compile \
