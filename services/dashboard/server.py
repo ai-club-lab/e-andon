@@ -52,7 +52,7 @@ def _sig(ev: AnomalyEvent) -> str:
     return f"{ev.kind}:{round(ev.peak_magnitude)}"
 
 
-async def _infer_and_notify(ev: AnomalyEvent) -> None:
+async def _infer_and_notify(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
     """Run (or reuse) RCA for an event and push a chat notification (Req 5, 6.1).
 
     Inferences are serialized and de-duplicated by signature: the looping demo
@@ -78,7 +78,7 @@ async def _infer_and_notify(ev: AnomalyEvent) -> None:
         )
     except Exception as exc:  # no silent fallback (Req 5.6)
         text = f"⚠ 異常 {ev.event_id}: 原因推定に失敗しました（{type(exc).__name__}）"
-    await state.notifs.put({"event_id": ev.event_id, "text": text})
+    await notifs.put({"event_id": ev.event_id, "text": text})
 
 
 async def _store_frame(event_id: str, jpg: bytes) -> None:
@@ -91,9 +91,11 @@ async def _store_frame(event_id: str, jpg: bytes) -> None:
 
 
 async def _frames():
-    # per-connection tracker: each viewing starts fresh (parts flow, then an
-    # anomaly happens ~6s in) instead of replaying accumulated global state.
+    # per-connection tracker + notifications: each viewing starts fresh (parts
+    # flow, then an anomaly happens ~6s in) and only THIS stream's anomalies
+    # notify — no global-queue leakage from other sessions/async inferences.
     tracker = EventTracker()
+    notifs: asyncio.Queue = asyncio.Queue()
     cap = cv2.VideoCapture(VIDEO)
     fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
     step = max(1, round(fps / DETECTION.sample_fps))
@@ -125,10 +127,10 @@ async def _frames():
                 event_store.save_event(ev)
                 if frames_store.enabled():
                     asyncio.create_task(_store_frame(ev.event_id, annotated_jpg))
-                asyncio.create_task(_infer_and_notify(ev))
+                asyncio.create_task(_infer_and_notify(ev, notifs))
             notes = []
-            while not state.notifs.empty():
-                notes.append(state.notifs.get_nowait())
+            while not notifs.empty():
+                notes.append(notifs.get_nowait())
             yield {"event": "frame", "data": json.dumps({
                 "frame_index": fr.frame_index, "ts": round(fr.ts, 3),
                 "n_parts": len(fr.parts),
