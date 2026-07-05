@@ -13,7 +13,7 @@ set -euo pipefail
 
 PROJECT=fhack26-aiclub
 PNUM=523085315022
-REPO=ai-club-lab/chokotei-sentinel
+REPO=ai-club-lab/e-andon
 SA="523085315022-compute@developer.gserviceaccount.com"   # runtime SA (has roles/editor); reused as deployer
 POOL=github-pool
 PROVIDER=github-provider
