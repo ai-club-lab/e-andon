@@ -58,7 +58,8 @@ main{display:grid;grid-template-columns:1.7fr 1fr;gap:16px;padding:16px 24px;max
 #replay.hot{border-color:var(--alert);color:var(--alert);background:var(--alert-soft)}
 /* ---- chart ---- */
 .chart-body{padding:8px 12px 14px}
-canvas#vib{width:100%;height:150px;display:block}
+canvas#plc,canvas#cur{width:100%;display:block}
+canvas#plc{height:132px}canvas#cur{height:84px}
 .legend{display:flex;gap:16px;padding:0 16px 12px;font-size:12px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 /* ---- assistant ---- */
@@ -126,12 +127,21 @@ canvas#vib{width:100%;height:150px;display:block}
       </div>
     </div>
     <div class="card">
-      <div class="card-h">モータ電流<span class="tag">搬送モータ [A]</span>
+      <div class="card-h">PLC出力<span class="tag">位置決めシリンダ · ストローク完了率 [%]</span>
         <span id="belt-badge" class="tag" style="margin-left:auto">ベルト: 運転中</span></div>
-      <div class="chart-body"><canvas id="vib" width="900" height="150"></canvas></div>
+      <div class="chart-body"><canvas id="plc" width="900" height="132"></canvas></div>
       <div class="legend">
-        <span><i style="background:#4f46e5"></i>motor_current</span>
-        <span><i style="background:#fde2e2;border:1px solid #f5b5b5"></i>ライン停止</span>
+        <span><i style="background:#4f46e5"></i>plc_actuator</span>
+        <span><i style="background:#fff0d6;border:1px solid #f0c674"></i>出力低下（予兆）</span>
+        <span><i style="background:#e5484d"></i>ズレ検知</span>
+        <span><i style="background:#12a150"></i>現在時刻</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h">モータ電流<span class="tag">搬送モータ [A] · 一定＝過負荷なし</span></div>
+      <div class="chart-body"><canvas id="cur" width="900" height="84"></canvas></div>
+      <div class="legend">
+        <span><i style="background:#7a8194"></i>motor_current</span>
         <span><i style="background:#12a150"></i>現在時刻</span>
       </div>
     </div>
@@ -145,9 +155,9 @@ canvas#vib{width:100%;height:150px;display:block}
       </div>
       <div class="composer">
         <div class="chips">
-          <span class="chip" onclick="ask(this)">モータ電流の推移は？</span>
-          <span class="chip" onclick="ask(this)">ベルトはいつ止まった？</span>
-          <span class="chip" onclick="ask(this)">温度は正常？</span>
+          <span class="chip" onclick="ask(this)">ズレの原因は？</span>
+          <span class="chip" onclick="ask(this)">PLC出力に異常は？</span>
+          <span class="chip" onclick="ask(this)">モータ電流は正常？</span>
         </div>
         <div class="inrow"><input id="q" placeholder="ログについて質問…" onkeydown="if(event.key==='Enter')send()">
           <button onclick="send()">送信</button></div>
@@ -255,33 +265,51 @@ async function send(){
   feed.scrollTop=feed.scrollHeight;
 }
 
-const STOP_TS=9.5;
-async function drawChart(){
-  const d=await (await fetch('/iot?channel=motor_current&t0=0&t1=10')).json();
-  const cv=$('#vib'), x=cv.getContext('2d'); const W=cv.width,H=cv.height;
-  const padL=34,padR=10,padT=10,padB=20; const w=W-padL-padR,h=H-padT-padB;
-  x.clearRect(0,0,W,H);
-  if(!d.found||!d.points.length){ return; }
-  const pts=d.points, T=10;
-  const vmax=(Math.max(...pts.map(p=>p[1]))*1.15)||1;      // 0-based stable scale
-  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;        // 0 at bottom
-  const ct=parseFloat($('#c-ts').textContent)||0;          // reveal only up to "now"
-  // gridlines + axis
-  x.strokeStyle='#eef0f4'; x.lineWidth=1; x.fillStyle='#9aa1b2'; x.font='10px sans-serif';
-  for(let g=0;g<=2;g++){ const v=vmax*g/2, yy=py(v); x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();
-    x.fillText(v.toFixed(1),6,yy+3); }
+const MISALIGN_TS=5.8, PRECURSOR=[4.0,5.6];
+const curT=()=>parseFloat($('#c-ts').textContent)||0;
+
+// PLC出力（位置決めシリンダ）: the hero — its dip BEFORE the misalignment is the
+// root-cause precursor. Line + amber precursor band + red misalignment marker.
+async function drawPLC(){
+  const d=await (await fetch('/iot?channel=plc_actuator&t0=0&t1=10')).json();
+  const cv=$('#plc'); if(!cv)return; const x=cv.getContext('2d'), W=cv.width,H=cv.height;
+  const padL=34,padR=10,padT=10,padB=20,w=W-padL-padR,h=H-padT-padB;
+  x.clearRect(0,0,W,H); if(!d.found||!d.points.length)return;
+  const pts=d.points,T=10,vmax=110, ct=curT();
+  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
+  x.strokeStyle='#eef0f4';x.lineWidth=1;x.fillStyle='#9aa1b2';x.font='10px sans-serif';
+  [0,50,100].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.fillText(v,12,yy+3);});
   for(let t=0;t<=T;t+=2){ x.fillText(t+'s',px(t)-6,H-6); }
-  // line reaching current time (current ramps up then the belt stops -> ~0)
+  if(ct>PRECURSOR[0]){ x.fillStyle='#fff0d6'; const e=Math.min(PRECURSOR[1],ct);
+    x.fillRect(px(PRECURSOR[0]),padT,px(e)-px(PRECURSOR[0]),h);
+    if(ct>=PRECURSOR[0]+0.4){ x.fillStyle='#c98a1a';x.font='bold 10px sans-serif';x.fillText('予兆',px(PRECURSOR[0])+4,padT+12);} }
   const vis=pts.filter(p=>p[0]<=ct);
-  x.strokeStyle='#4f46e5'; x.lineWidth=1.8; x.beginPath();
-  vis.forEach((p,i)=>{ const X=px(p[0]),Y=py(p[1]); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
-  // shade the stopped region only once we've reached it
-  if(ct>STOP_TS){ x.fillStyle='#fdecec'; x.fillRect(px(STOP_TS),padT,px(Math.min(T,ct))-px(STOP_TS),h);
-    x.fillStyle='#e5484d'; x.font='bold 10px sans-serif'; x.fillText('停止',px(STOP_TS)+4,padT+12); }
-  // current time marker
-  x.strokeStyle='#12a150'; x.lineWidth=1.5; x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
+  x.strokeStyle='#4f46e5';x.lineWidth=1.8;x.beginPath();
+  vis.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
+  if(ct>=MISALIGN_TS){ x.strokeStyle='#e5484d';x.lineWidth=1.5;x.setLineDash([3,3]);
+    x.beginPath();x.moveTo(px(MISALIGN_TS),padT);x.lineTo(px(MISALIGN_TS),padT+h);x.stroke();x.setLineDash([]);
+    x.fillStyle='#e5484d';x.font='bold 10px sans-serif';x.fillText('ズレ検知',px(MISALIGN_TS)+3,padT+12); }
+  x.strokeStyle='#12a150';x.lineWidth=1.5;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
 }
-drawChart(); setInterval(drawChart,500); setInterval(refreshMetrics,4000);
+
+// モータ電流: flat while running (constant = no overload) — the foil that lets
+// the agent rule out a jam and trace the cause upstream to the PLC.
+async function drawCurrent(){
+  const d=await (await fetch('/iot?channel=motor_current&t0=0&t1=10')).json();
+  const cv=$('#cur'); if(!cv)return; const x=cv.getContext('2d'), W=cv.width,H=cv.height;
+  const padL=34,padR=10,padT=8,padB=16,w=W-padL-padR,h=H-padT-padB;
+  x.clearRect(0,0,W,H); if(!d.found||!d.points.length)return;
+  const pts=d.points,T=10,vmax=(Math.max(...pts.map(p=>p[1]))*1.4)||1, ct=curT();
+  const px=t=>padL+(t/T)*w, py=v=>padT+h-(v/vmax)*h;
+  x.strokeStyle='#eef0f4';x.lineWidth=1;x.fillStyle='#9aa1b2';x.font='10px sans-serif';
+  [0,vmax/2,vmax].forEach(v=>{const yy=py(v);x.beginPath();x.moveTo(padL,yy);x.lineTo(W-padR,yy);x.stroke();x.fillText(v.toFixed(1),8,yy+3);});
+  const vis=pts.filter(p=>p[0]<=ct);
+  x.strokeStyle='#7a8194';x.lineWidth=1.6;x.beginPath();
+  vis.forEach((p,i)=>{const X=px(p[0]),Y=py(p[1]);i?x.lineTo(X,Y):x.moveTo(X,Y);});x.stroke();
+  x.strokeStyle='#12a150';x.lineWidth=1.5;x.beginPath();x.moveTo(px(ct),padT);x.lineTo(px(ct),padT+h);x.stroke();
+}
+function drawCharts(){ drawPLC(); drawCurrent(); }
+drawCharts(); setInterval(drawCharts,500); setInterval(refreshMetrics,4000);
 </script>
 </body>
 </html>

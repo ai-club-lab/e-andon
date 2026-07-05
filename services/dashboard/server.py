@@ -88,11 +88,12 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
         await asyncio.sleep(0.3)
     if rca_d:
         cause = "、".join(rca_d["cause_candidates"][:2])
-        text = (f"⚠ 部品のズレを検知し、ベルトコンベアを停止しました。確認をお願いします。"
-                f"ログを調べたところ、原因は「{cause}」と推定されます"
-                f"（確信度 {rca_d['confidence']:.0%}）。根拠: {'; '.join(rca_d['evidence'][:2])}")
+        text = (f"⚠ 部品の位置ズレを検知し、ラインを停止しました。確認をお願いします。"
+                f"ログを遡ると、ズレ発生の直前に位置決めシリンダのPLC出力に異常の予兆がありました。"
+                f"真因は「{cause}」と推定されます（確信度 {rca_d['confidence']:.0%}）。"
+                f"根拠: {'; '.join(rca_d['evidence'][:2])}")
     else:
-        text = "⚠ 部品のズレを検知し、ベルトコンベアを停止しました。確認をお願いします。（原因を推定中です）"
+        text = "⚠ 部品の位置ズレを検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
     await notifs.put({"event_id": ev.event_id, "text": text})
 
 
@@ -237,7 +238,7 @@ async def feedback(req: Request) -> dict:
     if verdict == "wrong":
         ev = rec["event"]
         # reflux: make the corrected case searchable + let next occurrence re-infer
-        summary = f"部品の{ev['kind']}位置ずれ→噛み込みでモータ電流上昇・ライン停止 {human_cause}"
+        summary = f"位置決めシリンダPLC出力の予兆→部品の{ev['kind']}位置ずれ・ライン停止 {human_cause}"
         pc.add(FeedbackCase(summary=summary, correct_cause=human_cause, source_event_id=event_id))
         state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"ok": True, "metrics": feedback_store.metrics()}

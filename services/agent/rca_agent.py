@@ -31,16 +31,19 @@ os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "TRUE")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GCP.project_id)
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP.model_region)
 
-_INSTRUCTION = """あなたは工場ラインの停止（チョコ停）の原因を推定するエンジニアです。
-映像で部品の整列ズレが検知され、その後ベルトコンベアが停止しました。原因を推定してください。
+_INSTRUCTION = """あなたは工場ラインの異常の真因を、症状から上流に遡って特定するエンジニアです。
+映像で部品の位置ズレが検知されました。表面的な症状ではなく、それを引き起こした上流の原因を突き止めてください。
 手順:
-1) 必ず query_line_sensors で異常時刻周辺のライン信号を確認する。次の因果を読み解く:
-   ズレた部品が搬送機構で噛み込む → motor_current が定格(約3.0A)から急上昇 →
-   belt_speed が 0 に低下し plc_status が 1→0（停止）。temperature 42℃前後は正常（無関係）。
-2) 必ず search_past_cases で類似事例を検索する。類似事例があれば、その correct_cause を最有力候補に採用する。
-3) evidence には実際に参照した数値（motor_current の max、belt_speed/plc_status の min 等）を必ず含める。
+1) query_logs で plc_actuator（位置決めシリンダのPLC出力・ストローク完了率%）を、ズレ発生の
+   「前」の時間帯（例: 3.5〜6.0秒）で確認する。正常は約100%。ズレ発生の直前に一時的に低下（約74%）
+   していれば、それが真因の予兆（位置決めシリンダの動作不良・ストローク不足）である。
+2) query_line_sensors で motor_current と belt_speed を確認する。これらが一定（電流≈3.0A・速度≈12）
+   なら、噛み込みや過負荷ではないと判断でき、真因は上流のPLCアクチュエータ側だと裏付けられる。
+   temperature 42℃前後は正常（無関係）。
+3) search_past_cases で類似事例を検索し、あれば correct_cause を最有力候補に採用する。
+4) evidence には実際に参照した数値（plc_actuator の低下値と時刻、motor_current が正常な値 等）を必ず含める。
 最後に必ず次のJSONのみを出力してください（前後に文章を付けない）:
-{"cause_candidates": ["最有力の原因", "次点"], "confidence": 0.0〜1.0, "evidence": ["参照した数値やログ"]}
+{"cause_candidates": ["最有力の真因", "次点"], "confidence": 0.0〜1.0, "evidence": ["参照した数値やログ"]}
 """
 
 
@@ -54,8 +57,8 @@ def build_agent() -> Agent:
 
 
 _CHAT_INSTRUCTION = """あなたは工場ライン監視のアシスタントです。
-ユーザーの質問に答えるため、必要に応じてツールでライン信号（motor_current / belt_speed /
-plc_status / temperature）や過去事例を照会し、参照した数値を根拠として簡潔に日本語で回答してください。
+ユーザーの質問に答えるため、必要に応じてツールでライン信号（plc_actuator / motor_current /
+belt_speed / temperature）や過去事例を照会し、参照した数値を根拠として簡潔に日本語で回答してください。
 利用可能なログは 0〜10秒 の範囲です。ユーザーが時間範囲を明示しない場合（「直近」「最近」等を含む）は、
 必ず 0〜10秒 の全体を対象に query_logs を呼び出してください。安易に「データが無い」と答えないこと。
 本当に対象チャネルのデータが無い場合のみ、その旨を明示してください。

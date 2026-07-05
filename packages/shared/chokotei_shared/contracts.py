@@ -62,7 +62,7 @@ class AnomalyEvent(BaseModel):
 # --- IoT (Req 4) ---------------------------------------------------------
 
 IoTChannel = Literal[
-    "motor_current", "belt_speed", "plc_status", "temperature"
+    "plc_actuator", "motor_current", "belt_speed", "temperature"
 ]
 
 

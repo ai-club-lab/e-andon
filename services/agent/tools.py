@@ -9,15 +9,16 @@ from __future__ import annotations
 import iot_store
 import past_cases as pc
 
-_CHANNEL_HELP = "motor_current [A] / belt_speed [m/min] / plc_status (1=RUN,0=STOP) / temperature [C]"
+_CHANNEL_HELP = ("plc_actuator [%] (positioning-cylinder stroke completion) / "
+                 "motor_current [A] / belt_speed [m/min] / temperature [C]")
 
 
 def query_line_sensors(center_ts: float, half_width_s: float = 2.0) -> dict:
     """Summarize all line sensors in a window around an anomaly timestamp.
 
-    Use this to correlate the visual misalignment with the machine signals:
-    a jam shows as motor_current rising then spiking, belt_speed dropping to 0,
-    and plc_status going 1 -> 0 (line stop / choko-tei).
+    Use this to trace the root cause: plc_actuator dipping below 100% just
+    BEFORE the misalignment is the precursor (positioning-cylinder under-stroke),
+    while motor_current and belt_speed staying constant rule out overload/jam.
 
     Args:
         center_ts: anomaly time in seconds (event.started_ts).
@@ -42,7 +43,7 @@ def query_logs(channel: str, t0: float, t1: float) -> dict:
     """Fetch summary stats for one line sensor over [t0, t1] (Req 6.2).
 
     Args:
-        channel: one of motor_current / belt_speed / plc_status / temperature.
+        channel: one of plc_actuator / motor_current / belt_speed / temperature.
         t0: window start seconds. t1: window end seconds.
     """
     rows = iot_store.query(channel, t0, t1)  # type: ignore[arg-type]

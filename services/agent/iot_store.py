@@ -1,10 +1,13 @@
 """Synthetic IoT generation + query store (Req 4, design.md §4.5).
 
-Physically-coherent model for the choko-tei (minor line stop) scenario: a
-misaligned part travels down the belt, jams in the transfer mechanism, the
-motor current climbs then spikes, and the conveyor stops (belt speed -> 0,
-PLC RUN -> STOP). Temperature stays normal as a decoy. This gives the RCA
-agent real, correlated signal to reason over.
+Predictive-maintenance model for the choko-tei scenario: the positioning
+actuator (PLC-controlled) briefly under-strokes — its PLC output drops from
+100% to ~74% during [4.0, 5.6]s — which mis-positions the part. The visual
+misalignment appears ~1.8s later (~5.8s); the line is then stopped (~9.5s).
+
+Key point (physical realism): the belt motor current stays CONSTANT — a single
+mis-positioned part does not load the belt. The root cause is upstream in the
+PLC actuator output, not the motor. Temperature is a normal decoy.
 
 Local-first: persists to a JSONL file so query works without Cloud SQL.
 """
@@ -20,35 +23,37 @@ from chokotei_shared import IoTChannel, IoTReading
 
 STORE = Path(os.environ.get("IOT_STORE", "data/iot/readings.jsonl"))
 _SAMPLE_HZ = 50.0
-STOP_TS = 9.5  # belt stops here (choko-tei); aligns with the video's end-stop
-_CHANNELS: list[IoTChannel] = ["motor_current", "belt_speed", "plc_status", "temperature"]
+STOP_TS = 9.5                 # line stops here (choko-tei); aligns with the video end-stop
+MISALIGN_TS = 5.8            # visual misalignment appears here
+PLC_PRECURSOR = (4.0, 5.6)  # actuator PLC output dips BEFORE the misalignment (root cause)
+_CHANNELS: list[IoTChannel] = ["plc_actuator", "motor_current", "belt_speed", "temperature"]
 
 
 def generate(duration_s: float = 10.0, stop_ts: float = STOP_TS, seed: int = 42) -> list[IoTReading]:
     """Generate readings for the whole timeline. Deterministic given ``seed``.
 
-    Causal chain (Req 4.3): misaligned part -> jam -> motor current ramp+spike
-    -> belt stop. All channels are correlated with the visual anomaly window.
+    Causal chain (Req 4.3): plc_actuator dip (4.0-5.6s) -> part misalignment
+    (~5.8s) -> line stop (9.5s). motor_current/belt_speed stay flat while
+    running, so the agent can rule out overload and trace the PLC precursor.
     """
     rng = np.random.default_rng(seed)
     n = int(duration_s * _SAMPLE_HZ)
+    p0, p1 = PLC_PRECURSOR
     out: list[IoTReading] = []
     for i in range(n):
         ts = i / _SAMPLE_HZ
         running = ts < stop_ts
-        # motor current [A]: 3.0 idle -> load ramp (6.0-9.3s) -> jam spike -> ~0 on stop
-        if ts >= stop_ts:
-            current = 0.2 + rng.normal(0.0, 0.02)
-        elif ts >= 9.3:
-            current = 4.6 + (ts - 9.3) / (stop_ts - 9.3) * 1.2 + rng.normal(0.0, 0.05)  # spike -> ~5.8
-        elif ts >= 6.0:
-            current = 3.0 + (ts - 6.0) / (9.3 - 6.0) * 1.6 + rng.normal(0.0, 0.04)       # ramp -> ~4.6
+        # positioning-actuator PLC output (stroke completion %) — the precursor
+        if not running:
+            plc = 0.0
+        elif p0 <= ts <= p1:
+            plc = 74.0 + rng.normal(0.0, 1.2)   # under-stroke: root cause
         else:
-            current = 3.0 + rng.normal(0.0, 0.04)
+            plc = min(100.0, 99.4 + rng.normal(0.0, 0.4))
         vals = {
-            "motor_current": current,
+            "plc_actuator": plc,
+            "motor_current": (3.0 + rng.normal(0.0, 0.05)) if running else 0.2 + rng.normal(0.0, 0.02),
             "belt_speed": (12.0 + rng.normal(0.0, 0.08)) if running else 0.0,
-            "plc_status": 1.0 if running else 0.0,   # 1=RUN, 0=STOP
             "temperature": 42.0 + rng.normal(0.0, 0.2),
         }
         for ch in _CHANNELS:
