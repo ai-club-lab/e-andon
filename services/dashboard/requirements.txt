@@ -6,3 +6,4 @@ jinja2==3.1.5                   # lightweight server-rendered front (§12 decisi
 asyncpg==0.30.0
 sqlalchemy[asyncio]==2.0.36
 -e ../../packages/shared
+psycopg[binary]==3.2.3

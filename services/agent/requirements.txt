@@ -6,3 +6,4 @@ pgvector==0.3.6                 # RAG over past_cases (Req 9)
 fastapi==0.139.0
 uvicorn[standard]==0.34.0
 -e ../../packages/shared
+psycopg[binary]==3.2.3

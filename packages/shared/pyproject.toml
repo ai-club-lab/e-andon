@@ -3,7 +3,7 @@ name = "chokotei-shared"
 version = "0.1.0"
 description = "Shared typed contracts and config for chokotei-anomaly-rca"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.7,<3"]
+dependencies = ["pydantic>=2.7,<3", "psycopg[binary]>=3.2,<4"]
 
 [build-system]
 requires = ["setuptools>=68"]
