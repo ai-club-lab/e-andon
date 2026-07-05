@@ -17,10 +17,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
+import event_store
 import feedback_store
 import iot_store
 import past_cases as pc
-from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase
+from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db
 from detection import detect_frame
 from rca_agent import answer_query, infer
 from render import annotate, to_jpeg
@@ -64,6 +65,9 @@ async def _infer_and_notify(ev: AnomalyEvent) -> None:
                 rca_d = (await infer(ev)).model_dump()
                 state.rca_cache[sig] = rca_d
         state.events[ev.event_id]["rca"] = rca_d
+        event_store.save_rca(RcaResult(
+            event_id=ev.event_id, cause_candidates=rca_d["cause_candidates"],
+            confidence=rca_d["confidence"], evidence=rca_d["evidence"]))
         text = (
             f"⚠ 異常 {ev.event_id}（{ev.kind}, ピーク{ev.peak_magnitude:.1f}）"
             f" 推定原因: {', '.join(rca_d['cause_candidates'])}"
@@ -93,6 +97,7 @@ async def _frames():
             fr = detect_frame(frame, fi, fi / fps)
             for ev in state.tracker.update(fr):
                 state.events[ev.event_id] = {"event": ev.model_dump(), "rca": None}
+                event_store.save_event(ev)
                 asyncio.create_task(_infer_and_notify(ev))
             notes = []
             while not state.notifs.empty():
@@ -116,6 +121,8 @@ async def stream() -> EventSourceResponse:
 
 @app.get("/events")
 async def events() -> list[dict]:
+    if db.enabled():
+        return event_store.list_events()
     return list(state.events.values())
 
 
@@ -145,7 +152,7 @@ async def feedback(req: Request) -> dict:
     event_id = body.get("event_id", "")
     verdict = body.get("verdict")
     human_cause = (body.get("human_cause") or "").strip()
-    rec = state.events.get(event_id)
+    rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
     if not rec or verdict not in ("correct", "wrong"):
         return {"ok": False, "error": "invalid event_id or verdict"}
     if verdict == "wrong" and not human_cause:

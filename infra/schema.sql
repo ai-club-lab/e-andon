@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS iot_readings (
 CREATE INDEX IF NOT EXISTS idx_iot_ts_channel ON iot_readings (channel, ts);
 
 CREATE TABLE IF NOT EXISTS rca_results (
-    event_id        TEXT REFERENCES anomaly_events (event_id),
+    event_id        TEXT REFERENCES anomaly_events (event_id) UNIQUE,
     cause_candidates JSONB NOT NULL,
     confidence      DOUBLE PRECISION NOT NULL,
     evidence        JSONB NOT NULL,
