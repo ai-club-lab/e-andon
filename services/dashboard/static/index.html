@@ -171,7 +171,7 @@ es.addEventListener('frame',e=>{
   $('#k-fps').textContent='5';
   const flagged=d.flags && d.flags.length>0;
   const fp=$('#c-flag');
-  if(flagged){ const f=d.flags[0]; fp.className='pill alert'; fp.textContent='⚠ '+f.reason; lastAlertAt=Date.now(); }
+  if(flagged){ anomalySeen=true; const f=d.flags[0]; fp.className='pill alert'; fp.textContent='⚠ '+f.reason; lastAlertAt=Date.now(); }
   else { fp.className='pill ok'; fp.textContent='整列 正常'; }
   // status: alert while an anomaly is on screen or just was
   setStatus(flagged || (Date.now()-lastAlertAt<2500));
@@ -180,8 +180,9 @@ es.addEventListener('frame',e=>{
 
 // Alerts appear ONLY when an anomaly happens live in this session (not from
 // historical events). One card per distinct anomaly (kind + cause).
-const shownSig=new Set(); let anomalyCount=0;
+const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
 async function addAlert(eventId){
+  if(!anomalySeen) return;   // no alerts until an anomaly has actually appeared on the line
   const evs=await (await fetch('/events')).json();
   const it=evs.find(e=>e.event && e.event.event_id===eventId);
   if(!it || !it.rca) return;
