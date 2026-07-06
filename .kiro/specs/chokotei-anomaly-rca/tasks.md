@@ -94,5 +94,5 @@
   （`chokotei_shared/db.py` psycopg・JSONLフォールバック付き）。/events はDB読み、/feedback はDB検証で
   **HITLがインスタンス非依存**に。ライブで訂正→Cloud SQL永続→reflux 確認済み。ADKセッションも永続済み。
 - 残: 3.4 代表フレーム→Cloud Storage、3.5 Gemini二段確認の実呼び出し、10.x 監査・Monitoring/Trace。
-- `/healthz` は Cloud Run/GFE 側で 404（コスメティック）。必要なら `/health` にリネーム。
+- [x] `/healthz` は Cloud Run/GFE 側で 404（コスメティック）→ `/health` エイリアス追加で解消（2026-07-06）。
 - anomaly_events は毎ループ蓄積（デモ前に `TRUNCATE` で初期化可）。

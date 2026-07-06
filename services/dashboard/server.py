@@ -321,6 +321,7 @@ async def _restore_state() -> None:
         logger.exception("cold-start restore failed (continuing with empty state)")
 
 
+@app.get("/health")  # GFE reserves /healthz on run.app URLs and 404s it upstream
 @app.get("/healthz")
 async def healthz() -> dict:
     return {"ok": True, "video_present": os.path.exists(VIDEO),
