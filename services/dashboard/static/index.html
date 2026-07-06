@@ -87,6 +87,11 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .mini canvas{width:100%;height:78px;display:block;padding:0 8px 8px}
 .mini.warnv{border-color:#f3c088}.mini.badv{border-color:var(--alert)}
 .demo-note{font-size:12px;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:12px 14px;margin-bottom:16px}
+.lb.demo{color:var(--muted);border-color:var(--line)}
+.guide{position:relative;font-size:12.5px;background:var(--brand-soft);border:1px solid #dfe2fd;border-radius:12px;padding:10px 34px 10px 14px;margin-bottom:14px;line-height:1.7}
+.guide b{color:var(--brand)}
+.guide ol{margin:4px 0 0 18px;padding:0}
+.guide .gx{position:absolute;top:8px;right:10px;border:none;background:none;color:var(--muted);font-size:14px;cursor:pointer}
 /* chat (independent scroll) */
 .chat{flex:0 0 384px;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .chat-h{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line);font-weight:600;font-size:14px}
@@ -168,6 +173,8 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 <script>
 const $=s=>document.querySelector(s);
 const feed=$('#feed'), statusEl=$('#status'), statusT=$('#status-t');
+const UID=localStorage.getItem('eandon-uid')||('op-'+Math.random().toString(36).slice(2,10));
+localStorage.setItem('eandon-uid',UID);   // per-browser operator id → multi-turn chat session
 let hasContent=false;
 
 // ---- lines: line A is LIVE (real camera + detection); B/C/D are demo (graphs only) ----
@@ -216,7 +223,7 @@ function renderSidebar(){
     const dotCls = L.live ? ('ld '+({running:'',warning:'warn',stopped:'alert',recovered:''}[lineStatus]||'')) : 'ld';
     b.innerHTML='<span class="'+dotCls.trim()+'" id="dot-'+L.id+'"></span>'+
       '<span class="lt"><b>'+L.name+'</b><span>'+L.area+'</span></span>'+
-      (L.live?'<span class="lb">LIVE</span>':'');
+      (L.live?'<span class="lb">LIVE</span>':'<span class="lb demo">デモ</span>');
     b.onclick=()=>selectLine(L.id); box.appendChild(b);
   }
 }
@@ -229,6 +236,15 @@ function renderCenter(){
   title.innerHTML='<h1>'+L.name+'</h1><span class="sub">'+L.area+'</span>';
   c.appendChild(title);
   if(L.live){
+    if(!localStorage.getItem('eandon-guide-hide')){
+      c.insertAdjacentHTML('beforeend', `
+      <div class="guide"><button class="gx" onclick="localStorage.setItem('eandon-guide-hide','1');this.parentElement.remove()">✕</button>
+        <b>👀 デモの見方（1周 約60秒）</b><ol>
+        <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → ライン停止（チョコ停）</li>
+        <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
+        <li>通知の「✓ 正しい / ✗ 原因が違う」で裁定 — <b>訂正は次回の推論に反映</b>（AI正答率も更新）</li>
+        <li>「▶ もう一度再生」で何度でも。チャットで「各センサーは正常？」等の追加質問も可能</li></ol></div>`);
+    }
     c.insertAdjacentHTML('beforeend', `
       <div class="sect"><div class="card">
         <div class="card-h">ライン映像<span class="tag">俯瞰カメラ + 画像解析</span><span class="live">LIVE</span></div>
@@ -412,7 +428,7 @@ async function send(){
   addMsg('me',m); q.value='';
   const typing=document.createElement('div'); typing.className='msg bot'; typing.textContent='…'; feed.appendChild(typing);
   try{ const r=await (await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({message:m})})).json(); typing.textContent=r.reply; }
+    body:JSON.stringify({message:m,user_id:UID})})).json(); typing.textContent=r.reply; }
   catch(e){ typing.textContent='応答の取得に失敗しました。'; }
   feed.scrollTop=feed.scrollHeight;
 }

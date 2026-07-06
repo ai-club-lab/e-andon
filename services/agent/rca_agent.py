@@ -60,6 +60,7 @@ def build_agent() -> Agent:
 _CHAT_INSTRUCTION = """あなたは工場ライン監視のアシスタントです。
 ユーザーの質問に答えるため、必要に応じてツールで機械センサー（belt_speed / motor_current /
 vibration / motor_temp / air_pressure）や過去事例を照会し、参照した数値を根拠として簡潔に日本語で回答してください。
+正常の目安: 速度≈12 m/min・電流≈3.0A・振動≈0.4mm/s・温度≈42℃・エア圧≈0.50MPa。
 なお整列異常（横ズレ・角度・間隔）はカメラ映像で検知します。センサーは正常でも映像で異常を捉える点に留意してください。
 利用可能なログは 0〜10秒 の範囲です。ユーザーが時間範囲を明示しない場合（「直近」「最近」等を含む）は、
 必ず 0〜10秒 の全体を対象に query_logs を呼び出してください。安易に「データが無い」と答えないこと。
@@ -76,13 +77,37 @@ def build_chat_agent() -> Agent:
     )
 
 
+_runners: dict[str, Runner] = {}
+_chat_sessions: dict[str, str] = {}  # user_id -> session_id (survives via SESSION_DB_URL)
+
+
+def _runner(kind: str) -> Runner:
+    """One Runner per agent kind — avoids re-creating the session service
+    (and its DB pool) on every request."""
+    if kind not in _runners:
+        agent = build_agent() if kind == "rca" else build_chat_agent()
+        _runners[kind] = Runner(agent=agent, app_name=_APP, session_service=_session_service())
+    return _runners[kind]
+
+
 async def answer_query(question: str, user_id: str = "line-op") -> str:
-    """Answer a free-form operator question over the logs (Req 6.2/6.4)."""
-    runner = Runner(agent=build_chat_agent(), app_name=_APP, session_service=_session_service())
-    session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
+    """Answer a free-form operator question over the logs (Req 6.2/6.4).
+
+    Multi-turn: the session is reused per user, so follow-ups like
+    「さっきの異常の件だけど」 keep their context (persisted in Cloud SQL
+    through DatabaseSessionService when SESSION_DB_URL is set).
+    """
+    runner = _runner("chat")
+    sid = _chat_sessions.get(user_id)
+    if sid is not None and await runner.session_service.get_session(
+            app_name=_APP, user_id=user_id, session_id=sid) is None:
+        sid = None  # session evicted (e.g. DB reset) — start a new one
+    if sid is None:
+        session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
+        sid = _chat_sessions[user_id] = session.id
     msg = types.Content(role="user", parts=[types.Part(text=question)])
     out = ""
-    async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):
+    async for ev in runner.run_async(user_id=user_id, session_id=sid, new_message=msg):
         if ev.is_final_response() and ev.content and ev.content.parts:
             out = "".join(p.text or "" for p in ev.content.parts)
     return out or "（応答を生成できませんでした）"
@@ -110,8 +135,12 @@ def _extract_json(text: str) -> dict | None:
 
 
 async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
-    """Run the RCA agent over an anomaly event and return a structured result."""
-    runner = Runner(agent=build_agent(), app_name=_APP, session_service=_session_service())
+    """Run the RCA agent over an anomaly event and return a structured result.
+
+    The tool calls the agent chose are appended to ``evidence`` — the trace is
+    the proof of autonomy (which tools, in which order), not just the verdict.
+    """
+    runner = _runner("rca")
     session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
     prompt = (
         f"異常イベント: id={event.event_id} 種別={event.kind} "
@@ -120,18 +149,24 @@ async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
     )
     msg = types.Content(role="user", parts=[types.Part(text=prompt)])
     final_text = ""
+    tool_calls: list[str] = []
     async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):
+        tool_calls += [fc.name for fc in (ev.get_function_calls() or []) if fc.name]
         if ev.is_final_response() and ev.content and ev.content.parts:
             final_text = "".join(p.text or "" for p in ev.content.parts)
 
+    trace = f"ツール呼び出し（エージェントが自律選択）: {' → '.join(tool_calls)}" if tool_calls else None
     data = _extract_json(final_text)
     if data is None:
         logger.warning("RCA output not parseable; returning low-confidence result")
         return RcaResult(event_id=event.event_id, cause_candidates=["推定不能"],
-                         confidence=0.0, evidence=[final_text[:200]])
+                         confidence=0.0, evidence=[final_text[:200]] + ([trace] if trace else []))
+    evidence = list(data.get("evidence", []))[:6]
+    if trace:
+        evidence.append(trace)
     return RcaResult(
         event_id=event.event_id,
         cause_candidates=list(data.get("cause_candidates", []))[:3] or ["推定不能"],
         confidence=float(data.get("confidence", 0.0)),
-        evidence=list(data.get("evidence", []))[:6],
+        evidence=evidence,
     )

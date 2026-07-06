@@ -46,6 +46,8 @@ flowchart LR
 - **「なぜ」はエージェントでしか解けない**: 位置決め機構はセンサー非搭載＝ログを1本引けば済む問題ではない。
   エージェントが**自分でツールを選び**、5つの機械センサーを照会 →「全て正常」を**消去法の根拠**に変換 →
   過去事例をベクトル検索して真因を絞る。この探索・統合・推論の連鎖が Function Calling の自律ループ。
+  通知にはエージェントが選んだ**ツール呼び出しの履歴**（例: `query_line_sensors → search_past_cases`）を
+  根拠と併記する——自律性は主張でなく証跡で示す。チャットはセッション永続（Cloud SQL）で**マルチターン**。
 - **使うほど賢くなる**: 人の訂正は Gemini Embedding で埋め込み → Cloud SQL (pgvector) に蓄積 →
   次回 RCA の few-shot に自動還流。正答率は `/metrics` で追跡。
 
@@ -80,7 +82,7 @@ flowchart TB
 ```
 services/detector    決定論CV検知（整列/角度/ピッチ）＋ Gemini Vision 二段確認 ＋ 時系列集約
 services/agent       ADK RCAエージェント（FunctionTools・DatabaseSessionService・埋め込み検索）
-services/dashboard   FastAPI＋軽量フロント（複数ライン監視・SSE・チャット・HITL・コールドスタート復元）
+services/dashboard   FastAPI＋軽量フロント（稼働1ライン＋デモ表示3ライン・SSE・チャット・HITL・コールドスタート復元）
 packages/shared      型付き契約(pydantic)・設定注入・構造化ログ(obs)
 infra                Cloud SQL スキーマ・WIFセットアップ
 .github/workflows    CI（テスト＋Dockerビルド）／CD（キーレスWIFデプロイ）

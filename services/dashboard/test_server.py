@@ -38,6 +38,7 @@ def _seed_event(event_id: str = "evt-ui-1") -> None:
 def client():
     server.state.events.clear()
     server.state.rca_cache.clear()
+    server._RATE.clear()
     if os.path.exists(os.environ["FEEDBACK_STORE"]):
         os.remove(os.environ["FEEDBACK_STORE"])
     with TestClient(server.app) as c:
@@ -93,8 +94,35 @@ def test_should_prompt_for_input_when_chat_message_is_empty(client) -> None:
 
 
 def test_should_return_agent_reply_when_chat_message_is_given(client, monkeypatch) -> None:
-    async def fake_answer(message: str) -> str:
-        return f"echo:{message}"
+    async def fake_answer(message: str, user_id: str = "line-op") -> str:
+        return f"echo:{message}:{user_id}"
     monkeypatch.setattr(server, "answer_query", fake_answer)
-    r = client.post("/chat", json={"message": "電流は正常?"})
-    assert r.json()["reply"] == "echo:電流は正常?"
+    r = client.post("/chat", json={"message": "電流は正常?", "user_id": "op-abc123"})
+    assert r.json()["reply"] == "echo:電流は正常?:op-abc123"
+
+
+def test_should_rate_limit_chat_when_requests_flood(client, monkeypatch) -> None:
+    async def fake_answer(message: str, user_id: str = "line-op") -> str:
+        return "ok"
+    monkeypatch.setattr(server, "answer_query", fake_answer)
+    replies = [client.post("/chat", json={"message": "x"}).json()["reply"]
+               for _ in range(21)]
+    assert replies[0] == "ok"
+    assert "リクエストが多すぎます" in replies[-1]
+
+
+def test_should_cap_message_and_cause_lengths(client, monkeypatch) -> None:
+    """Abuse guard for the public demo URL (docs/audit.md 脅威モデル)."""
+    _seed_event()
+    seen = {}
+    async def fake_answer(message: str, user_id: str = "line-op") -> str:
+        seen["len"] = len(message)
+        return "ok"
+    monkeypatch.setattr(server, "answer_query", fake_answer)
+    client.post("/chat", json={"message": "あ" * 2000})
+    assert seen["len"] == server.MAX_MESSAGE_LEN
+    added = []
+    monkeypatch.setattr(server.pc, "add", added.append)
+    client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "wrong",
+                                   "human_cause": "x" * 2000})
+    assert len(added[0].correct_cause) == server.MAX_CAUSE_LEN

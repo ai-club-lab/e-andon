@@ -12,6 +12,8 @@ import base64
 import json
 import logging
 import os
+import re
+import time
 
 import cv2
 from fastapi import FastAPI, Request
@@ -237,23 +239,49 @@ async def iot(channel: str, t0: float = 0.0, t1: float = 10.0) -> dict:
     return {"channel": channel, "found": True, "points": pts}
 
 
+# Abuse guard for the public demo URL: unauthenticated /chat and /feedback
+# feed an LLM and the RAG store, so cap sizes and rate-limit per client IP
+# (single-instance in-memory window; enough for a demo deployment).
+_RATE: dict[str, list[float]] = {}
+MAX_MESSAGE_LEN = 500
+MAX_CAUSE_LEN = 200
+
+
+def _rate_ok(req: Request, limit: int = 20, window_s: float = 60.0) -> bool:
+    fwd = req.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() or (req.client.host if req.client else "?")
+    now = time.monotonic()
+    q = _RATE.setdefault(ip, [])
+    while q and now - q[0] > window_s:
+        q.pop(0)
+    if len(q) >= limit:
+        return False
+    q.append(now)
+    return True
+
+
 @app.post("/chat")
 async def chat(req: Request) -> dict:
     body = await req.json()
-    message = (body or {}).get("message", "").strip()
+    message = (body or {}).get("message", "").strip()[:MAX_MESSAGE_LEN]
+    user_id = re.sub(r"[^\w-]", "", str((body or {}).get("user_id") or ""))[:40] or "line-op"
     if not message:
         return {"reply": "質問を入力してください。"}
-    reply = await answer_query(message)
+    if not _rate_ok(req):
+        return {"reply": "リクエストが多すぎます。1分ほど待ってから再度お試しください。"}
+    reply = await answer_query(message, user_id=user_id)
     return {"reply": reply}
 
 
 @app.post("/feedback")
 async def feedback(req: Request) -> dict:
     """Record a human verdict; reflux corrections into past cases (Req 8, 9)."""
+    if not _rate_ok(req):
+        return {"ok": False, "error": "rate limited"}
     body = await req.json() or {}
     event_id = body.get("event_id", "")
     verdict = body.get("verdict")
-    human_cause = (body.get("human_cause") or "").strip()
+    human_cause = (body.get("human_cause") or "").strip()[:MAX_CAUSE_LEN]
     rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
     if not rec or verdict not in ("correct", "wrong"):
         return {"ok": False, "error": "invalid event_id or verdict"}
