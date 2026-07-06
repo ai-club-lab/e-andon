@@ -29,6 +29,16 @@ jobs:
         env:
           PYTHONPATH: services/detector   # tests open video/ by a repo-root-relative path
         run: python -m pytest -q services/detector/test_detection.py services/detector/test_guardrails.py
+      - name: Install deps (agent)
+        working-directory: services/agent
+        run: pip install -r requirements.txt
+      - name: Install deps (dashboard)
+        working-directory: services/dashboard
+        run: pip install -r requirements.txt httpx
+      - name: Offline UI tests (dashboard API — chat / feedback / metrics)
+        env:
+          PYTHONPATH: services/dashboard:services/agent:services/detector
+        run: python -m pytest -q services/dashboard/test_server.py
       - name: Compile sanity (all services)
         run: |
           python -m py_compile \
