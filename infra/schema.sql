@@ -48,5 +48,8 @@ CREATE TABLE IF NOT EXISTS past_cases (
     correct_cause  TEXT NOT NULL,
     source_event_id TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    -- embedding vector(N)  -- add once embedding model/dim is chosen (research #5)
 );
+-- research #5: gemini-embedding-001, MRL-truncated to 768d (pgvector index-safe).
+-- The service also runs this at startup (past_cases.ensure_schema) and
+-- backfills NULL embeddings, so existing databases need no manual migration.
+ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS embedding vector(768);
