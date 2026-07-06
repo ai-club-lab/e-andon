@@ -1,5 +1,5 @@
 """chokotei_shared — typed contracts and config shared across services."""
-from chokotei_shared import db
+from chokotei_shared import db, obs
 from chokotei_shared.config import DETECTION, GCP, DetectionConfig, GcpConfig
 from chokotei_shared.contracts import (
     AnomalyEvent,
@@ -16,6 +16,7 @@ from chokotei_shared.contracts import (
 
 __all__ = [
     "db",
+    "obs",
     "DETECTION",
     "GCP",
     "DetectionConfig",

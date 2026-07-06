@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 
 import cv2
@@ -23,7 +24,7 @@ import frames_store
 import iot_store
 import past_cases as pc
 from fastapi.responses import Response
-from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db
+from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db, obs
 from detection import detect_frame
 from rca_agent import answer_query, infer
 from render import annotate, to_jpeg
@@ -31,7 +32,9 @@ from tracking import EventTracker
 from vision_confirm import confirm_with_gemini
 
 VIDEO = os.environ.get("SAMPLE_VIDEO", "video/factory_01.mov")
-app = FastAPI(title="chokotei-dashboard")
+obs.setup_logging()
+logger = logging.getLogger("dashboard")
+app = FastAPI(title="e-Andon — AIアンドン")
 
 
 class _State:
@@ -72,7 +75,7 @@ async def _infer(ev: AnomalyEvent) -> None:
             event_id=ev.event_id, cause_candidates=rca_d["cause_candidates"],
             confidence=rca_d["confidence"], evidence=rca_d["evidence"]))
     except Exception:  # no silent fallback (Req 5.6)
-        logging.getLogger("dashboard").exception("RCA failed for %s", ev.event_id)
+        logger.exception("RCA failed", extra={"ctx": {"event_id": ev.event_id}})
 
 
 async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
@@ -291,6 +294,31 @@ async def _seed_iot() -> None:
     """Ensure deterministic IoT seed exists per instance (ephemeral fs)."""
     if not iot_store.STORE.exists():
         iot_store.persist(iot_store.generate())
+
+
+@app.on_event("startup")
+async def _restore_state() -> None:
+    """Rehydrate events + RCA cache from Cloud SQL after a cold start.
+
+    Keeps the story continuous across scale-to-zero restarts: past events
+    stay feedback-able and a recurring anomaly reuses its stored RCA instead
+    of a cold re-inference (faster first notification, fewer model calls).
+    """
+    if not db.enabled():
+        return
+    try:
+        recs = await asyncio.to_thread(event_store.list_events, 50)
+        for rec in recs:
+            state.events.setdefault(rec["event"]["event_id"], rec)
+            if rec["rca"]:
+                sig = f"{rec['event']['kind']}:{round(rec['event']['peak_magnitude'])}"
+                state.rca_cache.setdefault(sig, rec["rca"])
+        await asyncio.to_thread(pc.ensure_schema)  # embedding column + backfill
+        logger.info("cold-start restore done",
+                    extra={"ctx": {"restored_events": len(recs),
+                                   "rca_cache": len(state.rca_cache)}})
+    except Exception:
+        logger.exception("cold-start restore failed (continuing with empty state)")
 
 
 @app.get("/healthz")

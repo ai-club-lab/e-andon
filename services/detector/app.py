@@ -24,7 +24,7 @@ from tracking import EventTracker
 
 VIDEO = os.environ.get("SAMPLE_VIDEO", "video/factory_01.mov")
 
-app = FastAPI(title="chokotei-detector")
+app = FastAPI(title="e-Andon Detector")
 
 
 async def _frame_events():
@@ -80,7 +80,7 @@ async def index() -> str:
     return _PAGE
 
 
-_PAGE = """<!doctype html><meta charset=utf-8><title>chokotei detector</title>
+_PAGE = """<!doctype html><meta charset=utf-8><title>e-Andon detector</title>
 <style>body{font-family:system-ui;margin:16px;background:#0f1115;color:#e6e6e6}
 #f{max-width:100%;border:1px solid #333}#log{margin-top:8px;font-size:13px}
 .ev{color:#ff6b6b}</style>
