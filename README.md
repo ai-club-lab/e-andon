@@ -2,50 +2,81 @@
 
 [![ci](https://github.com/ai-club-lab/e-andon/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-club-lab/e-andon/actions/workflows/ci.yml)
 
-**稼働URL: https://chokotei-dashboard-523085315022.asia-northeast1.run.app** （Cloud Run / min-instances=0）
+**稼働URL: https://chokotei-dashboard-523085315022.asia-northeast1.run.app**
+（Cloud Run asia-northeast1。審査期間中は min-instances=1 で待機、以降 scale-to-zero）
 
-生産ラインの「**チョコ停**」（部品の位置ずれ等で起きる微小な短時間停止）を、**カメラ映像**で検知し、
-**AIエージェント**が原因を自律推定してチャットで通知、人が確認・訂正して次回に活かす —— **1本のHITL閉ループ**。
+生産ラインの「**チョコ停**」（部品の位置ずれ等で起きる微小な短時間停止）は、現場では
+「止まったことは分かるが、**なぜ**かは人が調べる」もの。e-Andon は従来のアンドン（異常表示灯）を
+AIエージェントで拡張し、**検知 → 停止 → 原因推定 → 人の裁定 → 次回の推論改善** を1本の閉ループにする。
 
-- **画像で検知（主役）**: 俯瞰カメラ映像から、部品の **整列ズレ(px) / 角度ズレ(°) / ピッチ偏差** を
-  決定論CV（OpenCV）で毎フレーム算出。位置決め機構はセンサー非搭載＝**映像でしか捉えられない**。
-- **AIが真因を推定**: 整列異常を検知すると、ADK/Gemini エージェントが機械センサー
-  （ベルト速度・モータ電流・振動・温度・エア圧）を照会し、**すべて正常＝過負荷や噛み込みではない**と除外して、
-  上流の**機械的な位置決め機構**を真因として提示（確信度・根拠つき）。
-- **工場まるごと監視**: サイドバーで複数ラインを管理。組立ライン1は実映像＋AI原因推定、他ラインはセンサーログ表示。
-- **HITL**: 通知カードで人が「正しい/違う」を確認・訂正 → 過去事例に蓄積し、次回の few-shot 推論へ還元。
+![デモ: 稼働 → 整列異常検知 → チョコ停 → AIエージェントが原因を通知 → 人が裁定](docs/assets/demo.gif)
 
-## デモの流れ
+*↑ 実映像デモ: 部品が流れる → 整列ズレ検知（赤枠 offset 16px）→ ライン停止 → **AIエージェントが
+「センサーは全て正常＝位置決め機構側の問題」と絞り込み、真因・確信度・根拠を通知** → 人が「正しい/違う」を裁定。*
 
-部品が流れる → 整列ズレを検知（黄・監視中）→ ライン停止（チョコ停）→ **AIエージェントが原因を通知** →
-停止画面で保持（「▶ もう一度再生」で最初から）。
+## なぜ「AIエージェント」なのか（必然性）
+
+```mermaid
+flowchart LR
+    subgraph DOM1["決定論領域：重い判断はLLMの外・監査ログ付き"]
+        CV[OpenCV 決定論CV<br>整列ズレ/角度/ピッチ検知] -->|異常確定| STOP[ライン停止<br>チョコ停]
+    end
+    STOP --> AGENT
+    subgraph DOM2["エージェント領域：なぜ？に答える"]
+        AGENT[ADK エージェント<br>Gemini 2.5 Flash] -->|自律選択| T1[query_line_sensors<br>5チャネル照会]
+        AGENT -->|自律選択| T2[query_logs<br>時間窓の統計]
+        AGENT -->|自律選択| T3[search_past_cases<br>pgvector 類似検索]
+    end
+    AGENT -->|真因・確信度・根拠| HITL[人の裁定<br>正しい / 違う＋訂正]
+    HITL -->|訂正を埋め込み化して蓄積| T3
+```
+
+- **停止判断は決定論**: 異常確定・ライン停止は OpenCV の幾何計算（閾値は PoC 実測: 正常σ≈1px vs 異常18px）。
+  LLM に破壊的判断をさせない（ガードレール）。境界帯 (8–12px) だけ Gemini Vision が二段確認。
+- **「なぜ」はエージェントでしか解けない**: 位置決め機構はセンサー非搭載＝ログを1本引けば済む問題ではない。
+  エージェントが**自分でツールを選び**、5つの機械センサーを照会 →「全て正常」を**消去法の根拠**に変換 →
+  過去事例をベクトル検索して真因を絞る。この探索・統合・推論の連鎖が Function Calling の自律ループ。
+- **使うほど賢くなる**: 人の訂正は Gemini Embedding で埋め込み → Cloud SQL (pgvector) に蓄積 →
+  次回 RCA の few-shot に自動還流。正答率は `/metrics` で追跡。
 
 ## アーキテクチャ
 
+```mermaid
+flowchart TB
+    subgraph CloudRun["Cloud Run — asia-northeast1"]
+        DET[detector<br>決定論CV + 二段確認] --> DASH[dashboard<br>FastAPI + SSE + HITL]
+        AGENT[agent<br>ADK 2.3.0 オーケストレータ] --> DASH
+    end
+    DASH -->|SSE / chat| USER((オペレーター))
+    AGENT -->|ADC・鍵不要| VERTEX[Vertex AI — us-central1<br>Gemini 2.5 Flash<br>gemini-embedding-001]
+    DASH --> SQL[(Cloud SQL Postgres<br>+ pgvector<br>events / RCA / feedback /<br>past_cases / ADKセッション)]
+    DASH --> GCS[(Cloud Storage<br>代表フレーム・非公開)]
+    GH[GitHub Actions] -->|キーレス WIF| CloudRun
 ```
-services/
-  detector/   # 決定論CV検知（整列/角度/ピッチ）＋二段確認＋時系列集約
-  agent/      # ADK RCAエージェント（AgentTool・DatabaseSessionService）＋合成センサー
-  dashboard/  # FastAPI＋軽量フロント（複数ライン監視・SSE配信・チャット・HITL）
-packages/shared/  # 型付き契約(pydantic)・設定注入
-infra/            # Cloud SQL スキーマ・WIFセットアップ
-video/            # 素材（factory_01.mov）
-.github/workflows/ # CI（テスト＋Dockerビルド）／CD（キーレスWIFデプロイ）
+
+```
+services/detector    決定論CV検知（整列/角度/ピッチ）＋ Gemini Vision 二段確認 ＋ 時系列集約
+services/agent       ADK RCAエージェント（FunctionTools・DatabaseSessionService・埋め込み検索）
+services/dashboard   FastAPI＋軽量フロント（複数ライン監視・SSE・チャット・HITL・コールドスタート復元）
+packages/shared      型付き契約(pydantic)・設定注入・構造化ログ(obs)
+infra                Cloud SQL スキーマ・WIFセットアップ
+.github/workflows    CI（テスト＋Dockerビルド）／CD（キーレスWIFデプロイ）
 ```
 
-- **実行**: Cloud Run（min-instances=0） / **AI**: Vertex AI Gemini 2.5 Flash（ADC・鍵不要, us-central1）
-- **状態**: Cloud SQL Postgres + pgvector（RCA・セッション永続化） / **エージェント**: google-adk==2.3.0
-- **リージョン**: モデル=us-central1 / 実行基盤=asia-northeast1
-- 仕様: [.kiro/specs/chokotei-anomaly-rca/](.kiro/specs/chokotei-anomaly-rca/)（requirements / design / tasks / research）
+- **実行**: Cloud Run / **AI**: Vertex AI Gemini 2.5 Flash + gemini-embedding-001（ADC・鍵不要, us-central1）
+- **状態**: Cloud SQL Postgres + pgvector（イベント・RCA・過去事例ベクトル・ADKセッション永続化）
+- **エージェント**: google-adk==2.3.0（バージョン固定・セッション永続化 smoke test 済み）
+- 仕様駆動: [.kiro/specs/chokotei-anomaly-rca/](.kiro/specs/chokotei-anomaly-rca/)（requirements → design → tasks を全トレース）
 
-## CI/CD
+## つくる・まわす・とどける
 
-- **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)): 毎 push / PR で、決定論CVテスト・コンパイル健全性・
-  Cloud Run と同一イメージの Docker ビルドを実行（GCP認証不要）。
-- **CD** ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)): **キーレス（Workload Identity Federation）**で
-  `main` → Cloud Run 自動デプロイ。長期SAキーは発行しない。
-- **有効化**: プロジェクト管理者が [infra/setup-wif.sh](infra/setup-wif.sh) を1回実行（WIFプール作成＋リポジトリ変数設定）。
-  未実行の間はデプロイジョブはスキップされ、pushが失敗しない設計。
+- **つくる**: 上記。決定論CVとエージェントの役割分離が設計の核。
+- **まわす** — CI/CD・可観測性:
+  - **CI** ([ci.yml](.github/workflows/ci.yml)): 毎 push/PR で決定論CVテスト・コンパイル健全性・本番同一イメージの Docker ビルド。
+  - **CD** ([deploy.yml](.github/workflows/deploy.yml)): **キーレス（Workload Identity Federation）**で `main` → Cloud Run 自動デプロイ。長期SAキーは発行しない。
+  - **可観測性** ([docs/observability.md](docs/observability.md)): 構造化JSONログ（Cloud Logging で severity / event_id フィルタ可能）、
+    HITL正答率 `/metrics`、Cloud Run 標準メトリクス。監査証跡（検知→根拠→裁定）はすべて Cloud SQL に残る。
+- **とどける**: 上の稼働URLで誰でも動作確認可能。コールドスタート後も Cloud SQL から状態復元し、審査期間は min-instances=1 で待機なし。
 
 ## ローカル開発
 
@@ -53,12 +84,15 @@ video/            # 素材（factory_01.mov）
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e packages/shared
 pip install -r services/detector/requirements.txt   # 必要なサービスごと
-# オフラインテスト（動画パスはリポジトリ直下基準）
+# オフラインテスト（GCP認証不要・動画パスはリポジトリ直下基準）
 PYTHONPATH=services/detector python -m pytest -q services/detector/test_detection.py services/detector/test_guardrails.py
 ```
 
 ## ガードレール（公開repo前提）
 
 - APIキー/SAキー/`.env` は公開repoに入れない（**Secret Manager / ADC / WIF**）。
-- 重い意思決定（異常確定）は**決定論CV**に置き、LLMの外＋監査ログに（HITL）。
+- 重い意思決定（異常確定・停止）は**決定論CV**に置き、LLMの外＋監査ログに（HITL）。詳細: [docs/audit.md](docs/audit.md)
 - `gcloud projects delete` / `run services delete` は打たない（撤収は owner 判断）。
+
+> 補足: Cloud Run サービス名・内部パッケージ名は旧称 `chokotei` のまま（稼働URL維持のための意図的判断）。
+> プロダクト名・UIは e-Andon に統一している。
