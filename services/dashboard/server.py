@@ -269,7 +269,11 @@ async def chat(req: Request) -> dict:
         return {"reply": "質問を入力してください。"}
     if not _rate_ok(req):
         return {"reply": "リクエストが多すぎます。1分ほど待ってから再度お試しください。"}
-    reply = await answer_query(message, user_id=user_id)
+    try:
+        reply = await answer_query(message, user_id=user_id)
+    except Exception:  # surfaced to the user + logged — never a raw 500 (Req 5.6)
+        logger.exception("chat failed", extra={"ctx": {"user_id": user_id}})
+        return {"reply": "モデル呼び出しが混み合っています。数秒おいてもう一度お試しください。"}
     return {"reply": reply}
 
 

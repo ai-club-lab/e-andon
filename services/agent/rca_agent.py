@@ -16,6 +16,7 @@ import os
 import re
 
 from google.adk.agents import Agent
+from google.adk.models.google_llm import Gemini
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -48,10 +49,20 @@ _INSTRUCTION = """あなたは工場ラインの整列異常の真因を特定�
 """
 
 
+# Vertex 429 retry is OFF by default in google-genai — enable it explicitly
+# (de-risk #4): exponential backoff, also covering transient 5xx.
+_RETRY = types.HttpRetryOptions(attempts=4, initialDelay=1.0, maxDelay=8.0,
+                                expBase=2.0, httpStatusCodes=[429, 500, 503])
+
+
+def _model() -> Gemini:
+    return Gemini(model=GCP.gemini_model, retry_options=_RETRY)
+
+
 def build_agent() -> Agent:
     return Agent(
         name="rca_orchestrator",
-        model=GCP.gemini_model,
+        model=_model(),
         instruction=_INSTRUCTION,
         tools=[query_line_sensors, query_logs, search_past_cases, get_frame],
     )
@@ -71,7 +82,7 @@ vibration / motor_temp / air_pressure）や過去事例を照会し、参照し�
 def build_chat_agent() -> Agent:
     return Agent(
         name="line_assistant",
-        model=GCP.gemini_model,
+        model=_model(),
         instruction=_CHAT_INSTRUCTION,
         tools=[query_line_sensors, query_logs, search_past_cases],
     )
