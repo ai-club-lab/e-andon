@@ -43,5 +43,19 @@ jobs:
             --set-secrets DB_PASSWORD=chokotei-db-password:latest \
             --set-env-vars "INSTANCE_CONNECTION_NAME=${{ vars.CLOUDSQL_CONN }},DB_NAME=chokotei,DB_USER=postgres,FRAMES_BUCKET=fhack26-aiclub-frames,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT }},GOOGLE_CLOUD_LOCATION=us-central1,MODEL_REGION=us-central1"
 
-      - name: Show URL
-        run: gcloud run services describe chokotei-dashboard --project "${{ vars.GCP_PROJECT }}" --region asia-northeast1 --format="value(status.url)"
+      - id: url
+        name: Show URL
+        run: |
+          URL=$(gcloud run services describe chokotei-dashboard --project "${{ vars.GCP_PROJECT }}" --region asia-northeast1 --format="value(status.url)")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "$URL"
+
+      # Notify #github-feed (Discord) with the deploy result. continue-on-error so a
+      # Discord outage never masks a real deploy status. Secret = DISCORD_WEBHOOK_URL.
+      - name: Notify Discord
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -fsS -H "Content-Type: application/json" -X POST \
+            -d "{\"content\":\"🚀 deploy **${{ job.status }}** — chokotei-dashboard \`${GITHUB_SHA:0:7}\` ${{ steps.url.outputs.url }}\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"
