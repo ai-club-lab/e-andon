@@ -16,7 +16,7 @@ import re
 import time
 
 import cv2
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
@@ -455,6 +455,12 @@ async def correct(req: Request) -> dict:
     rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
     if not rec:
         return {"reply": "対象の異常が見つかりません。", "recorded": False}
+    prior = feedback_store.get_verdict(event_id)
+    if prior:  # same guard as buttons/Slack — one verdict per event (Req 2.4)
+        who = prior.get("actor_name") or prior.get("actor_id")
+        label = "正しい" if prior.get("verdict") == "correct" else "違う（訂正記録あり）"
+        return {"reply": f"このイベントは裁定済みです（{label}"
+                         f"{'・' + who if who else ''}）。", "recorded": False}
     ctx = _correction_ctx(rec, Actor(surface="dashboard", user_id=user_id))
     ev = rec["event"]
     try:
@@ -621,9 +627,33 @@ slack_routes.configure(record_verdict=_record_verdict,
                        on_wrong=_slack_on_wrong, on_message=_slack_on_message)
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
+_EVENT_PAGE = os.path.join(os.path.dirname(__file__), "static", "event.html")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
     with open(_STATIC, encoding="utf-8") as fh:
+        return fh.read()
+
+
+@app.get("/api/event/{event_id}")
+async def api_event(event_id: str) -> dict:
+    """Everything the mobile adjudication page needs in one fetch (Req 8.3)."""
+    rec = _event_rec(event_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="unknown event")
+    v = feedback_store.get_verdict(event_id)
+    return {
+        "event": rec["event"], "rca": rec.get("rca"),
+        "verdict": ({"verdict": v.get("verdict"), "actor_id": v.get("actor_id"),
+                     "actor_name": v.get("actor_name"), "at": v.get("ts")} if v else None),
+        "escalation_notes": rec.get("escalation_notes", []),
+        "suggestions": _cause_suggestions(rec["event"]["kind"]),
+    }
+
+
+@app.get("/e/{event_id}", response_class=HTMLResponse)
+async def event_page(event_id: str) -> str:
+    """Deep-link target from the Slack card — mobile-first (Req 8.1)."""
+    with open(_EVENT_PAGE, encoding="utf-8") as fh:
         return fh.read()

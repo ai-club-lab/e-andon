@@ -220,6 +220,51 @@ def test_should_share_one_write_path_across_surfaces(client) -> None:
         ("slack", "U123", "Suzuki")
 
 
+def test_correct_dialogue_refuses_after_adjudication(client, monkeypatch) -> None:
+    """Req 2.4 across surfaces: once adjudicated, /correct won't open a dialogue."""
+    _seed_event()
+    client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct",
+                                   "user_id": "op-7"})
+    called = []
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        called.append(1)
+        return {"reply": "x", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    r = client.post("/correct", json={"event_id": "evt-ui-1", "message": ""}).json()
+    assert r["recorded"] is False and "裁定済み" in r["reply"]
+    assert not called
+
+
+# --- mobile adjudication page (andon-human-loop task 8, Req 8) ---
+
+def test_event_page_serves_mobile_first_html(client) -> None:
+    """Req 8.1: the deep-link target renders standalone, mobile-first."""
+    _seed_event()
+    r = client.get("/e/evt-ui-1")
+    assert r.status_code == 200
+    html = r.text
+    assert 'name="viewport"' in html            # mobile rendering
+    assert "verdict" in html or "裁定" in html   # adjudication controls present
+
+
+def test_event_api_returns_adjudication_material(client) -> None:
+    """Req 8.3: one fetch carries cause/confidence/evidence/verdict state."""
+    _seed_event()
+    r = client.get("/api/event/evt-ui-1").json()
+    assert r["event"]["event_id"] == "evt-ui-1"
+    assert r["rca"]["cause_candidates"] == ["送り機構の速度低下"]
+    assert r["verdict"] is None
+    client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct",
+                                   "user_id": "op-9"})
+    r2 = client.get("/api/event/evt-ui-1").json()
+    assert r2["verdict"]["verdict"] == "correct" and r2["verdict"]["actor_id"] == "op-9"
+
+
+def test_event_api_404s_unknown_event(client) -> None:
+    r = client.get("/api/event/nope")
+    assert r.status_code == 404
+
+
 def test_should_refuse_record_correction_without_active_session(client) -> None:
     import tools
     assert tools.record_correction("何か")["recorded"] is False        # no active event bound

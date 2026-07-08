@@ -479,8 +479,10 @@ function renderChips(list){ const box=$('#chips'); if(!box) return; box.innerHTM
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);
   markFbDone(btn);
-  const r=await postJSON('/feedback',{event_id:id,verdict:'correct'});
-  addMsg('bot', r.ok?'ご確認ありがとうございます。「正しい」と記録しました。':('記録に失敗: '+r.error));
+  const r=await postJSON('/feedback',{event_id:id,verdict:'correct',user_id:UID});
+  if(r.already_adjudicated){ const w=r.prior&&(r.prior.actor_name||r.prior.actor_id);
+    addMsg('bot','このイベントは裁定済みです'+(w?'（'+w+'）':'')+'。'); }
+  else addMsg('bot', r.ok?'ご確認ありがとうございます。「正しい」と記録しました。':('記録に失敗: '+r.error));
   refreshMetrics();
 }
 async function startCorrection(btn,id){
