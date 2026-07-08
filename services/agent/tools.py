@@ -6,6 +6,9 @@ model gets clear signal at low token cost.
 """
 from __future__ import annotations
 
+import contextvars
+from typing import Callable
+
 import iot_store
 import past_cases as pc
 
@@ -65,10 +68,46 @@ def search_past_cases(query: str) -> list[dict]:
     return [c.model_dump() for c in pc.search(query)]
 
 
-def get_frame(event_id: str) -> dict:
-    """Return the representative frame reference for an anomaly event (Req 5.2).
+# --- HITL correction capture (Req 8/9) ---
+# The correction agent elicits the operator's tacit knowledge in natural dialogue
+# and calls record_correction to persist it. Guardrail: the LLM supplies only the
+# *cause text* (the operator's words); the *target event* and the actual write are
+# server-controlled — the event is bound per-request via a ContextVar the model
+# cannot see, and persistence goes through an injected recorder (audit + dedupe).
+_active_correction: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "active_correction", default=None)
+_recorder: Callable[[dict, str, str], dict] | None = None
+
+
+def set_correction_recorder(fn: Callable[[dict, str, str], dict]) -> None:
+    """Inject the persistence side-effect (dashboard wires past_cases + audit)."""
+    global _recorder
+    _recorder = fn
+
+
+def record_correction(correct_cause: str, evidence_note: str = "") -> dict:
+    """Record the operator's corrected root cause for the anomaly under review.
+
+    Call this ONLY after the operator has named a concrete cause (a machine part
+    or mechanical state) AND you have repeated it back for confirmation. Never
+    invent a cause — record only what the operator stated.
 
     Args:
-        event_id: the anomaly event id.
+        correct_cause: the operator's confirmed root cause, in their words.
+        evidence_note: optional supporting detail (what they saw / checked).
+
+    Returns:
+        {"recorded": bool, ...}. If not recorded, the reason says what to ask next.
     """
-    return {"event_id": event_id, "note": "representative frame reference (P1: local)"}
+    holder = _active_correction.get()
+    if holder is None or _recorder is None:
+        return {"recorded": False, "reason": "訂正セッションが有効ではありません"}
+    cause = (correct_cause or "").strip()
+    if len(cause) < 2:
+        return {"recorded": False,
+                "reason": "原因が具体的でありません。オペレーターにもう一度確認してください"}
+    result = _recorder(holder["event"], cause[:200], (evidence_note or "").strip()[:200])
+    if result.get("recorded"):
+        holder["recorded"] = True
+        holder["cause"] = cause[:200]
+    return result

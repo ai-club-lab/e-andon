@@ -22,7 +22,14 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from chokotei_shared import GCP, AnomalyEvent, RcaResult
-from tools import get_frame, query_line_sensors, query_logs, search_past_cases
+from tools import (
+    _active_correction,
+    query_line_sensors,
+    query_logs,
+    record_correction,
+    search_past_cases,
+    set_correction_recorder,  # re-exported so the dashboard wires it via rca_agent
+)
 
 logger = logging.getLogger("rca_agent")
 _APP = "chokotei-rca"
@@ -64,7 +71,7 @@ def build_agent() -> Agent:
         name="rca_orchestrator",
         model=_model(),
         instruction=_INSTRUCTION,
-        tools=[query_line_sensors, query_logs, search_past_cases, get_frame],
+        tools=[query_line_sensors, query_logs, search_past_cases],
     )
 
 
@@ -88,16 +95,50 @@ def build_chat_agent() -> Agent:
     )
 
 
+# HITL correction elicitor (Req 8/9): when the operator rejects the AI's cause,
+# this agent draws out the field's tacit knowledge through natural dialogue —
+# not a form prompt — and records it as a reusable past case. The write is the
+# one deterministic step (record_correction → server-side persistence + audit).
+_CORRECTION_INSTRUCTION = """あなたは工場ライン監視AIの「学習・訂正」担当アシスタントです。
+現場オペレーターが、AIの原因推定を「原因が違う」と裁定しました。あなたの目的は、
+オペレーターが持つ現場の暗黙知を自然な対話で引き出し、次回の推定に活かせる形で記録することです。
+
+進め方:
+1) まず一言で受け止め（謝意・共感）、「現場では何が原因だと見ているか」を”1つの質問”で尋ねる。
+   詰問・尋問にしない。フォームのように矢継ぎ早に聞かない。
+2) オペレーターの回答が具体的な機械・部位・状態（例: ガイドレールのボルト緩み、治具の摩耗）を含むなら、
+   要点を一度だけ短く復唱して確認する。曖昧なら（「なんか変」等）、具体化する質問を”1つだけ”返す。
+   掘り下げは合計で最大1〜2往復にとどめる。
+3) 真因が確認できたら record_correction(correct_cause, evidence_note) を必ず呼び出して記録する。
+   correct_cause はオペレーターの言葉を尊重した簡潔な真因。evidence_note は補足（見た兆候・確認した箇所）。
+4) 記録が成功したら、感謝と「次に同じ異常が出たら、この原因を最優先の候補として提示します」旨を一言添える。
+
+厳守: 原因を勝手に創作しない。オペレーターが述べた内容だけを記録する。ツールが未記録を返したら、
+その理由に従ってもう一度だけ確認の質問を返す。回答は常に簡潔な日本語で。
+"""
+
+
+def build_correction_agent() -> Agent:
+    return Agent(
+        name="correction_elicitor",
+        model=_model(),
+        instruction=_CORRECTION_INSTRUCTION,
+        tools=[record_correction, search_past_cases],
+    )
+
+
+_BUILDERS = {"rca": build_agent, "chat": build_chat_agent, "correction": build_correction_agent}
 _runners: dict[str, Runner] = {}
 _chat_sessions: dict[str, str] = {}  # user_id -> session_id (survives via SESSION_DB_URL)
+_correction_sessions: dict[str, str] = {}  # f"{user_id}:{event_id}" -> session_id
 
 
 def _runner(kind: str) -> Runner:
     """One Runner per agent kind — avoids re-creating the session service
     (and its DB pool) on every request."""
     if kind not in _runners:
-        agent = build_agent() if kind == "rca" else build_chat_agent()
-        _runners[kind] = Runner(agent=agent, app_name=_APP, session_service=_session_service())
+        _runners[kind] = Runner(agent=_BUILDERS[kind](), app_name=_APP,
+                                session_service=_session_service())
     return _runners[kind]
 
 
@@ -122,6 +163,41 @@ async def answer_query(question: str, user_id: str = "line-op") -> str:
         if ev.is_final_response() and ev.content and ev.content.parts:
             out = "".join(p.text or "" for p in ev.content.parts)
     return out or "（応答を生成できませんでした）"
+
+
+async def elicit_correction(event_ctx: dict, message: str, user_id: str = "line-op") -> dict:
+    """Drive one turn of the HITL correction dialogue (Req 8/9).
+
+    ``event_ctx`` = {event_id, kind, ai_cause}. An empty ``message`` opens the
+    dialogue (the agent asks the operator for their read); a non-empty one is the
+    operator's reply. The session is per (user, event) so the exchange keeps its
+    context. Returns {"reply", "recorded", "cause"} — ``recorded`` flips to True
+    the turn the agent commits the correction via record_correction.
+    """
+    runner = _runner("correction")
+    key = f"{user_id}:{event_ctx['event_id']}"
+    sid = _correction_sessions.get(key)
+    if sid is not None and await runner.session_service.get_session(
+            app_name=_APP, user_id=user_id, session_id=sid) is None:
+        sid = None  # session evicted (e.g. DB reset) — start a new one
+    if sid is None:
+        session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
+        sid = _correction_sessions[key] = session.id
+    text = (message or "").strip() or (
+        f"（オペレーターがAIの推定「{event_ctx.get('ai_cause', '')}」を『原因が違う』と裁定しました。"
+        f"検知された異常種別={event_ctx.get('kind', '')}。対話を始め、現場の見立てを一つ質問してください。）")
+
+    holder = {"event": event_ctx, "recorded": False, "cause": None}
+    token = _active_correction.set(holder)
+    try:
+        msg = types.Content(role="user", parts=[types.Part(text=text)])
+        out = ""
+        async for ev in runner.run_async(user_id=user_id, session_id=sid, new_message=msg):
+            if ev.is_final_response() and ev.content and ev.content.parts:
+                out = "".join(p.text or "" for p in ev.content.parts)
+    finally:
+        _active_correction.reset(token)
+    return {"reply": out or "…", "recorded": holder["recorded"], "cause": holder["cause"]}
 
 
 def _session_service():

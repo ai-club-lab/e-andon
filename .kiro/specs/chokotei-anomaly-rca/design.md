@@ -85,7 +85,9 @@ class AnomalyEvent(BaseModel):
   - `query_vibration(event_id, window_s) -> list[IoTReading]`（R4.2, R5.2）
   - `query_logs(channel, t0, t1) -> list[IoTReading]`（R6.2）
   - `search_past_cases(query) -> list[FeedbackCase]`（R5.4, R9.1 / pgvector）
-  - `get_frame(event_id) -> ImageRef`（R5.2）
+  - `record_correction(correct_cause, evidence_note) -> dict`（R8/R9 / HITL訂正エージェントが暗黙知を確定）
+  - ~~`get_frame(event_id) -> ImageRef`~~（実装時に削除：整列検知は決定論CVで完了しており、エージェントは
+    映像を再取得しない。人向けの代表フレーム表示は dashboard の `/frame/{event_id}` プロキシで担保）
 ```python
 class RcaResult(BaseModel):
     event_id: str

@@ -37,8 +37,8 @@ flowchart LR
         AGENT -->|自律選択| T2[query_logs<br>時間窓の統計]
         AGENT -->|自律選択| T3[search_past_cases<br>pgvector 類似検索]
     end
-    AGENT -->|真因・確信度・根拠| HITL[人の裁定<br>正しい / 違う＋訂正]
-    HITL -->|訂正を埋め込み化して蓄積| T3
+    AGENT -->|真因・確信度・根拠| HITL[人の裁定<br>正しい / 対話で真因を訂正]
+    HITL -->|訂正エージェントが暗黙知を聞き取り埋め込み化| T3
 ```
 
 - **停止判断は決定論**: 異常確定・ライン停止は OpenCV の幾何計算（閾値は PoC 実測: 正常σ≈1px vs 異常18px）。
@@ -48,8 +48,11 @@ flowchart LR
   過去事例をベクトル検索して真因を絞る。この探索・統合・推論の連鎖が Function Calling の自律ループ。
   通知にはエージェントが選んだ**ツール呼び出しの履歴**（例: `query_line_sensors → search_past_cases`）を
   根拠と併記する——自律性は主張でなく証跡で示す。チャットはセッション永続（Cloud SQL）で**マルチターン**。
-- **使うほど賢くなる**: 人の訂正は Gemini Embedding で埋め込み → Cloud SQL (pgvector) に蓄積 →
-  次回 RCA の few-shot に自動還流。正答率は `/metrics` で追跡。
+- **使うほど賢くなる（対話で暗黙知を回収）**: 推定が外れたとき、オペレーターはフォーム入力ではなく
+  **AIエージェントとの自然な対話**で真因を伝える。専用の訂正エージェントが現場の見立てを1〜2往復で聞き出し、
+  `record_correction` ツールで確定 → Gemini Embedding で埋め込み → Cloud SQL (pgvector) に事例化 →
+  次回 RCA の few-shot に自動還流。書き込み先イベントはサーバが固定（LLMは原因テキストのみを供給）し、
+  監査ログに残す（ガードレール）。正答率は `/metrics` で追跡。
 
 ### 学習ループの実測（Before / After）
 
@@ -108,6 +111,14 @@ infra                Cloud SQL スキーマ・WIFセットアップ
     リードタイムは **main push → 本番反映 約3分**（直近の実測: 2m24s / 3m04s）。
   - **可観測性** ([docs/observability.md](docs/observability.md)): 構造化JSONログ（Cloud Logging で severity / event_id フィルタ可能）、
     HITL正答率 `/metrics`、Cloud Run 標準メトリクス。監査証跡（検知→根拠→裁定）はすべて Cloud SQL に残る。
+  - **Four Keys（デリバリのまわり方）**:
+
+    | 指標 | 本作品での実現 |
+    |---|---|
+    | デプロイ頻度 | `main` への push ごとに自動デプロイ（WIF → Cloud Run） |
+    | 変更リードタイム | **push → 本番反映 約3分**（実測 2m24s / 3m04s） |
+    | 変更障害率 | 毎 push の CI（決定論CV・UI・コンパイル・Dockerビルド）を通過後にのみデプロイ。異常確定は決定論CVに隔離しLLMの回帰から保護 |
+    | 復元時間(MTTR) | Cloud Run のリビジョン即時ロールバック＋コールドスタート時に Cloud SQL から状態復元。停止経過時間はUIに常時表示 |
 - **とどける**: 上の稼働URLで誰でも動作確認可能。コールドスタート後も Cloud SQL から状態復元し、審査期間は min-instances=1 で待機なし。
 
 ## ローカル開発

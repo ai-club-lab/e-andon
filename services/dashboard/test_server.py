@@ -126,3 +126,60 @@ def test_should_cap_message_and_cause_lengths(client, monkeypatch) -> None:
     client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "wrong",
                                    "human_cause": "x" * 2000})
     assert len(added[0].correct_cause) == server.MAX_CAUSE_LEN
+
+
+# --- conversational HITL correction (/correct + record_correction) ---
+
+def test_should_open_correction_dialogue_when_event_exists(client, monkeypatch) -> None:
+    _seed_event()
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        return {"reply": f"現場では何が原因でしたか?（{ctx['kind']}）", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    r = client.post("/correct", json={"event_id": "evt-ui-1", "message": "", "user_id": "op-1"}).json()
+    assert r["reply"] == "現場では何が原因でしたか?（offset）"
+    assert r["recorded"] is False
+
+
+def test_should_report_metrics_when_correction_is_recorded(client, monkeypatch) -> None:
+    _seed_event()
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        return {"reply": "記録しました。次回は最優先で提示します。", "recorded": True, "cause": "ボルト緩み"}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    r = client.post("/correct", json={"event_id": "evt-ui-1", "message": "ボルトが緩んでた"}).json()
+    assert r["recorded"] is True
+    assert "metrics" in r and r["cause"] == "ボルト緩み"
+
+
+def test_should_reject_correction_when_event_is_unknown(client) -> None:
+    r = client.post("/correct", json={"event_id": "nope", "message": "x"}).json()
+    assert r["recorded"] is False and "見つかりません" in r["reply"]
+
+
+def test_should_reflux_via_record_correction_tool(client, monkeypatch) -> None:
+    """The agent's record_correction tool must persist through the same audited
+    reflux path — event target is server-bound, LLM supplies only the cause."""
+    import tools
+    _seed_event()
+    added = []
+    monkeypatch.setattr(server.pc, "add", added.append)
+    holder = {"event": {"event_id": "evt-ui-1"}, "recorded": False, "cause": None}
+    tok = tools._active_correction.set(holder)
+    try:
+        res = tools.record_correction("ガイドレール固定ボルトの緩み", "カバーを開けたら緩んでいた")
+    finally:
+        tools._active_correction.reset(tok)
+    assert res["recorded"] is True and holder["recorded"] is True
+    assert added and added[0].correct_cause == "ガイドレール固定ボルトの緩み"
+    assert "補足" in added[0].summary          # evidence_note folded into the case
+    assert "offset:16" not in server.state.rca_cache, "recurrence must re-infer"
+
+
+def test_should_refuse_record_correction_without_active_session(client) -> None:
+    import tools
+    assert tools.record_correction("何か")["recorded"] is False        # no active event bound
+    holder = {"event": {"event_id": "evt-ui-1"}, "recorded": False, "cause": None}
+    tok = tools._active_correction.set(holder)
+    try:
+        assert tools.record_correction("x")["recorded"] is False       # cause too short
+    finally:
+        tools._active_correction.reset(tok)

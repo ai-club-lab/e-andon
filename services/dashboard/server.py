@@ -28,7 +28,7 @@ import past_cases as pc
 from fastapi.responses import Response
 from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db, obs
 from detection import detect_frame
-from rca_agent import answer_query, infer
+from rca_agent import answer_query, elicit_correction, infer, set_correction_recorder
 from render import annotate, to_jpeg
 from tracking import EventTracker
 from vision_confirm import confirm_with_gemini
@@ -277,9 +277,40 @@ async def chat(req: Request) -> dict:
     return {"reply": reply}
 
 
+def _persist_correction(event_id: str, cause: str, evidence_note: str = "") -> dict:
+    """Reflux a human correction into the asset store — the shared write behind
+    both the /feedback 'wrong' path and the conversational /correct agent.
+
+    Records the wrong verdict (audit + metrics), makes the corrected case
+    searchable (past_cases), and drops the cached RCA for that anomaly signature
+    so the next occurrence re-infers with the new knowledge (Req 8, 9).
+    """
+    rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
+    if not rec:
+        return {"recorded": False, "reason": "unknown event"}
+    ev = rec["event"]
+    ai = rec.get("rca") or {}
+    cause = cause.strip()[:MAX_CAUSE_LEN]
+    note = (evidence_note or "").strip()[:MAX_CAUSE_LEN]
+    feedback_store.save({
+        "event_id": event_id, "verdict": "wrong",
+        "ai_cause": ai.get("cause_candidates", []), "human_cause": cause,
+        "kind": ev["kind"], "peak": ev["peak_magnitude"],
+    })
+    detail = f"（現場の補足: {note}）" if note else ""
+    summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {cause}{detail}"
+    pc.add(FeedbackCase(summary=summary, correct_cause=cause, source_event_id=event_id))
+    state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
+    return {"recorded": True, "metrics": feedback_store.metrics()}
+
+
 @app.post("/feedback")
 async def feedback(req: Request) -> dict:
-    """Record a human verdict; reflux corrections into past cases (Req 8, 9)."""
+    """Record a human verdict; reflux corrections into past cases (Req 8, 9).
+
+    The UI routes 'wrong' through the conversational /correct agent; this endpoint
+    stays the deterministic path for 'correct' and keeps working for 'wrong' too.
+    """
     if not _rate_ok(req):
         return {"ok": False, "error": "rate limited"}
     body = await req.json() or {}
@@ -292,19 +323,47 @@ async def feedback(req: Request) -> dict:
     if verdict == "wrong" and not human_cause:
         return {"ok": False, "error": "human_cause required when wrong"}
 
-    ai = rec.get("rca") or {}
-    feedback_store.save({
-        "event_id": event_id, "verdict": verdict,
-        "ai_cause": ai.get("cause_candidates", []), "human_cause": human_cause or None,
-        "kind": rec["event"]["kind"], "peak": rec["event"]["peak_magnitude"],
-    })
     if verdict == "wrong":
-        ev = rec["event"]
-        # reflux: make the corrected case searchable + let next occurrence re-infer
-        summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {human_cause}"
-        pc.add(FeedbackCase(summary=summary, correct_cause=human_cause, source_event_id=event_id))
-        state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
+        _persist_correction(event_id, human_cause)
+    else:
+        ai = rec.get("rca") or {}
+        feedback_store.save({
+            "event_id": event_id, "verdict": "correct",
+            "ai_cause": ai.get("cause_candidates", []), "human_cause": None,
+            "kind": rec["event"]["kind"], "peak": rec["event"]["peak_magnitude"],
+        })
     return {"ok": True, "metrics": feedback_store.metrics()}
+
+
+@app.post("/correct")
+async def correct(req: Request) -> dict:
+    """Conversational HITL correction: the agent elicits the operator's tacit
+    knowledge and commits it via record_correction (Req 8, 9). One turn per call;
+    ``recorded`` flips True on the turn the correction lands."""
+    if not _rate_ok(req):
+        return {"reply": "リクエストが多すぎます。少し待ってから再度お試しください。", "recorded": False}
+    body = await req.json() or {}
+    event_id = body.get("event_id", "")
+    message = (body.get("message") or "").strip()[:MAX_MESSAGE_LEN]
+    user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
+    if not rec:
+        return {"reply": "対象の異常が見つかりません。", "recorded": False}
+    ev = rec["event"]
+    ai = rec.get("rca") or {}
+    ctx = {"event_id": event_id, "kind": ev["kind"],
+           "ai_cause": "、".join(ai.get("cause_candidates", [])[:2])}
+    try:
+        result = await elicit_correction(ctx, message, user_id=user_id)
+    except Exception:  # surfaced + logged, never a raw 500 (Req 5.6)
+        logger.exception("correction failed", extra={"ctx": {"event_id": event_id}})
+        return {"reply": "モデル呼び出しが混み合っています。数秒おいて、もう一度お書きください。",
+                "recorded": False}
+    out = {"reply": result["reply"], "recorded": result["recorded"]}
+    if result["recorded"]:
+        out["metrics"] = feedback_store.metrics()
+        out["cause"] = result.get("cause")
+    return out
 
 
 @app.get("/metrics")
@@ -319,6 +378,14 @@ async def frame_img(event_id: str) -> Response:
     if data is None:
         return Response(status_code=404)
     return Response(content=data, media_type="image/jpeg")
+
+
+@app.on_event("startup")
+async def _wire_correction() -> None:
+    """Let the correction agent's record_correction tool persist through the
+    dashboard's shared reflux path (past_cases + audit + cache invalidation)."""
+    set_correction_recorder(
+        lambda ev_ctx, cause, note: _persist_correction(ev_ctx["event_id"], cause, note))
 
 
 @app.on_event("startup")

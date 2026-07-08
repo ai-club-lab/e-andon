@@ -116,7 +116,14 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .fb button.no:hover{background:var(--alert-soft);border-color:var(--alert);color:var(--alert)}
 .fb button.done{opacity:.5;pointer-events:none}
+.alert-card.correcting{border-color:var(--brand);border-left-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.alert-card.corrected .ah{background:var(--ok-soft);color:var(--ok)}
 .composer{border-top:1px solid var(--line);padding:12px;background:#fff}
+.composer.correcting{background:var(--brand-soft)}
+.cbanner{display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--brand);margin-bottom:9px}
+.composer.correcting .cbanner{display:flex}
+.cbanner .cx{margin-left:auto;border:none;background:none;color:var(--muted);cursor:pointer;font-size:13px}
+#stop-clock{font-weight:700;border-radius:999px;padding:3px 10px;font-size:12px;background:var(--alert-soft);color:var(--alert)}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
 .chip{font-size:12px;color:var(--brand);background:var(--brand-soft);border:1px solid #dfe2fd;border-radius:999px;padding:4px 10px;cursor:pointer}
 .inrow{display:flex;gap:8px}
@@ -158,7 +165,9 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
     <div class="feed" id="feed">
       <div class="empty" id="empty">全ラインを監視しています。<br>異常を検知すると、推定原因とともにここに通知します。<br>下の入力からログ照会もできます。</div>
     </div>
-    <div class="composer">
+    <div class="composer" id="composer">
+      <div class="cbanner"><span>✏️ 訂正モード — AIに現場の原因を教えています</span>
+        <button class="cx" onclick="cancelCorrection()">やめる</button></div>
       <div class="chips">
         <span class="chip" onclick="ask(this)">ズレの原因は？</span>
         <span class="chip" onclick="ask(this)">各センサーは正常？</span>
@@ -204,6 +213,14 @@ const hist={t:[],offset:[],angle:[],gap:[]};    // live vision metrics for line 
 const iotCache={};                              // /iot points for line A sensors
 const demoCache={};                             // synthetic points for demo lines
 let lastImg='', lastParts='–', lastTs=0;
+let stopSince=0;   // wall-clock ms when line A first read 'stopped' (choko-tei elapsed)
+function updateStopClock(){
+  const el=$('#stop-clock'); if(!el) return;
+  if(lineStatus==='stopped' && stopSince){
+    const s=Math.floor((Date.now()-stopSince)/1000);
+    el.style.display=''; el.textContent='⛔ 停止 '+String((s/60)|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0')+' 経過';
+  } else el.style.display='none';
+}
 
 // ---- status helpers ----
 const STATUS={running:['ok','全ライン 正常監視中'],warning:['warn','⚠ 組立ライン1 異常検知'],
@@ -242,7 +259,7 @@ function renderCenter(){
         <b>👀 デモの見方（1周 約60秒）</b><ol>
         <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → ライン停止（チョコ停）</li>
         <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
-        <li>通知の「✓ 正しい / ✗ 原因が違う」で裁定 — <b>訂正は次回の推論に反映</b>（AI正答率も更新）</li>
+        <li>「✓ 正しい」で承認、「✗ 原因が違う」で<b>AIが対話で真因を質問</b> — 答えると事例化して次回に反映（AI正答率も更新）</li>
         <li>「▶ もう一度再生」で何度でも。チャットで「各センサーは正常？」等の追加質問も可能</li></ol></div>`);
     }
     c.insertAdjacentHTML('beforeend', `
@@ -251,6 +268,7 @@ function renderCenter(){
         <div class="video-wrap"><img id="frame" alt="line"></div>
         <div class="vcap"><span>検知部品 <b id="c-parts">–</b></span>
           <span id="c-flag" class="pill ok">整列 正常</span>
+          <span id="stop-clock" style="display:none">⛔ 停止 00:00</span>
           <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span>
           <button id="replay" onclick="replay()">▶ もう一度再生</button></div>
       </div></div>
@@ -353,6 +371,7 @@ function onFrame(e){
   lastImg=d.image; lastParts=d.n_parts; lastTs=d.ts;
   const flagged=d.flags && d.flags.length>0;
   lineStatus=d.line_status||'running';
+  if(lineStatus==='stopped'){ if(!stopSince) stopSince=Date.now(); } else stopSince=0;
   if(flagged) anomalySeen=true;
   if(d.metrics && d.frame_index>=0){ hist.t.push(d.ts);
     hist.offset.push(d.metrics.offset); hist.angle.push(d.metrics.angle); hist.gap.push(d.metrics.gap); }
@@ -376,9 +395,10 @@ function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',o
 function replay(){
   if(es) es.close();
   anomalySeen=false; anomalyCount=0; shownSig.clear();
-  hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; lastImg='';
+  hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; lastImg=''; stopSince=0;
   document.querySelectorAll('.alert-card').forEach(el=>el.remove());
-  $('#replay')?.classList.remove('hot');
+  $('#replay')?.classList.remove('hot'); updateStopClock();
+  if(correcting) cancelCorrection();
   connect();
 }
 
@@ -413,29 +433,66 @@ async function refreshMetrics(){
   try{ const m=await (await fetch('/metrics')).json();
     $('#k-acc').textContent=m.total?Math.round((m.correct_rate||0)*100)+'%':'–'; }catch(e){}
 }
+// ---- HITL feedback: 「正しい」は決定論記録、「原因が違う」はエージェントとの対話で暗黙知を収集 ----
+let correcting=null;   // {event_id, card} while eliciting a correction
+function postJSON(url,data){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify(data)}).then(r=>r.json()); }
+function addTyping(){ ensureFeed(); const d=document.createElement('div'); d.className='msg bot'; d.textContent='…';
+  feed.appendChild(d); feed.scrollTop=feed.scrollHeight; return d; }
+function markFbDone(btn){ const box=btn.closest('.fb'); if(box) box.querySelectorAll('button').forEach(b=>b.classList.add('done')); }
+function setComposerMode(on){ $('#composer').classList.toggle('correcting',on);
+  $('#q').placeholder = on ? '現場の見立てを入力…（例: ガイドレールのボルトが緩んでいた）' : 'ラインやログについて質問…'; }
+
 async function fb(btn,id,verdict){
-  let hc=null;
-  if(verdict==='wrong'){ hc=prompt('正しい原因を入力してください'); if(!hc)return; }
-  const r=await (await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({event_id:id,verdict:verdict,human_cause:hc})})).json();
-  const box=btn.closest('.fb'); box.querySelectorAll('button').forEach(b=>b.classList.add('done'));
-  addMsg('bot', r.ok?('フィードバックを記録しました（'+(verdict==='wrong'?('訂正: '+hc):'正しい')+'）。次回の推定に反映します。'):('記録に失敗: '+r.error));
+  if(verdict==='wrong') return startCorrection(btn,id);
+  markFbDone(btn);
+  const r=await postJSON('/feedback',{event_id:id,verdict:'correct'});
+  addMsg('bot', r.ok?'ご確認ありがとうございます。「正しい」と記録しました。':('記録に失敗: '+r.error));
+  refreshMetrics();
+}
+async function startCorrection(btn,id){
+  markFbDone(btn);
+  correcting={event_id:id, card:btn.closest('.alert-card')};
+  correcting.card?.classList.add('correcting');
+  setComposerMode(true);
+  const t=addTyping();
+  try{ const r=await postJSON('/correct',{event_id:id,message:'',user_id:UID}); t.remove(); addMsg('bot',r.reply); }
+  catch(e){ t.remove(); addMsg('bot','応答の取得に失敗しました。'); }
+  $('#q').focus();
+}
+function cancelCorrection(){
+  correcting?.card?.classList.remove('correcting');
+  correcting=null; setComposerMode(false);
+  addMsg('bot','訂正モードを終了しました。いつでも通知の「✗ 原因が違う」から再開できます。');
+}
+function finishCorrection(r){
+  correcting?.card?.classList.remove('correcting');
+  correcting?.card?.classList.add('corrected');
+  correcting=null; setComposerMode(false);
+  if(r.metrics && r.metrics.total){ $('#k-acc').textContent=Math.round((r.metrics.correct_rate||0)*100)+'%'; }
   refreshMetrics();
 }
 function ask(chip){ $('#q').value=chip.textContent; send(); }
 async function send(){
   const q=$('#q'); const m=q.value.trim(); if(!m)return;
   addMsg('me',m); q.value='';
-  const typing=document.createElement('div'); typing.className='msg bot'; typing.textContent='…'; feed.appendChild(typing);
-  try{ const r=await (await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({message:m,user_id:UID})})).json(); typing.textContent=r.reply; }
-  catch(e){ typing.textContent='応答の取得に失敗しました。'; }
+  const t=addTyping();
+  try{
+    if(correcting){
+      const r=await postJSON('/correct',{event_id:correcting.event_id,message:m,user_id:UID});
+      t.remove(); addMsg('bot',r.reply); if(r.recorded) finishCorrection(r);
+    } else {
+      const r=await postJSON('/chat',{message:m,user_id:UID});
+      t.remove(); addMsg('bot',r.reply);
+    }
+  }catch(e){ t.remove(); addMsg('bot','応答の取得に失敗しました。'); }
   feed.scrollTop=feed.scrollHeight;
 }
 
 // ---- boot ----
 renderSidebar(); setGlobalStatus(); renderCenter(); connect();
 setInterval(redraw,500); refreshMetrics(); setInterval(refreshMetrics,5000);
+setInterval(updateStopClock,1000);
 </script>
 </body>
 </html>
