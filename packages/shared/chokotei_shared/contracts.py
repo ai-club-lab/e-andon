@@ -77,6 +77,9 @@ class IoTReading(BaseModel):
 # --- RCA agent (Req 5) ---------------------------------------------------
 
 
+CauseCategory = Literal["positioning", "conveyance", "sensor", "other"]
+
+
 class RcaResult(BaseModel):
     """Root-cause inference output (Req 5)."""
 
@@ -84,6 +87,9 @@ class RcaResult(BaseModel):
     cause_candidates: list[str] = Field(description="ranked cause candidates")
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: list[str] = Field(description="referenced values/logs backing the guess")
+    # closed vocabulary — the deterministic routing key; the server normalizes
+    # anything the model emits outside this enum to "other" (human-loop Req 5)
+    category: CauseCategory = "other"
 
 
 # --- HITL feedback (Req 8) ----------------------------------------------
@@ -105,3 +111,43 @@ class FeedbackCase(BaseModel):
     summary: str
     correct_cause: str
     source_event_id: str
+
+
+# --- human loop: notification / routing / escalation (andon-human-loop) ---
+
+
+class Actor(BaseModel):
+    """Who adjudicated or corrected, and from which surface (human-loop Req 4)."""
+
+    surface: Literal["dashboard", "slack"]
+    user_id: str
+    display_name: str | None = None
+
+
+class EscalationStep(BaseModel):
+    """One deferred notification tier; tier 1 is the card itself (human-loop Req 6)."""
+
+    tier: Literal[2, 3]
+    delay_s: int = Field(gt=0, description="delay from the previous tier, seconds")
+    target_mention: str | None = Field(
+        description="Slack mention for tier 2; None for tier 3 (contact info only)")
+    contact_note: str | None = None
+
+
+class RoutingDecision(BaseModel):
+    """Deterministic routing outcome, recorded in full for audit (human-loop Req 5.6)."""
+
+    event_id: str
+    category: CauseCategory
+    rule_version: int
+    primary_mention: str
+    escalation_plan: list[EscalationStep]
+
+
+class NotificationRecord(BaseModel):
+    """One posted card per event — the idempotency key (human-loop Req 1.5)."""
+
+    event_id: str
+    channel_id: str
+    message_ts: str = Field(description="Slack ts; correlates thread replies")
+    posted_at: float

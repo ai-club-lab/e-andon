@@ -1,8 +1,20 @@
 """chokotei_shared — typed contracts and config shared across services."""
 from chokotei_shared import db, obs
-from chokotei_shared.config import DETECTION, GCP, DetectionConfig, GcpConfig
+from chokotei_shared.config import (
+    DETECTION,
+    ESCALATION,
+    GCP,
+    SLACK,
+    DetectionConfig,
+    EscalationConfig,
+    GcpConfig,
+    SlackConfig,
+)
 from chokotei_shared.contracts import (
+    Actor,
     AnomalyEvent,
+    CauseCategory,
+    EscalationStep,
     Feedback,
     FeedbackCase,
     FlagDetail,
@@ -10,18 +22,27 @@ from chokotei_shared.contracts import (
     FrameResult,
     IoTChannel,
     IoTReading,
+    NotificationRecord,
     PartObservation,
     RcaResult,
+    RoutingDecision,
 )
 
 __all__ = [
     "db",
     "obs",
     "DETECTION",
+    "ESCALATION",
     "GCP",
+    "SLACK",
     "DetectionConfig",
+    "EscalationConfig",
     "GcpConfig",
+    "SlackConfig",
+    "Actor",
     "AnomalyEvent",
+    "CauseCategory",
+    "EscalationStep",
     "Feedback",
     "FeedbackCase",
     "FlagDetail",
@@ -29,6 +50,8 @@ __all__ = [
     "FrameResult",
     "IoTChannel",
     "IoTReading",
+    "NotificationRecord",
     "PartObservation",
     "RcaResult",
+    "RoutingDecision",
 ]
