@@ -32,7 +32,12 @@ def test_infer_reasons_by_elimination_toward_positioning_side() -> None:
     print("cause_candidates:", result.cause_candidates)
     print("confidence:", result.confidence)
     print("evidence:", result.evidence)
+    print("category:", result.category)
     assert result.event_id == event.event_id
+    # routing key (human-loop Req 5.1): a positioning-side anomaly should land
+    # on "positioning"; the server-side guard makes anything else "other",
+    # which still routes (to the default duty) — so assert it parsed at all
+    assert result.category in ("positioning", "conveyance", "sensor", "other")
     assert result.confidence > 0.0, "expected non-zero confidence"
     causes = " ".join(result.cause_candidates)
     # elimination must land on the sensor-less positioning/feed/jig side

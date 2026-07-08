@@ -32,10 +32,10 @@
 
 ## 4. 真因カテゴリとルーティング（決定論）
 
-- [ ] 4.1 RCA プロンプトの JSON 出力に `category`（enum 4値）を追加し、`infer()` でサーバ側語彙検証・不正値は "other" 正規化 — 5.1, 5.2
-- [ ] 4.2 `routing.resolve(event_id, category)` を実装（routing_rules JOIN のみ・未登録は既定=班長＋発生記録・決定の全材料を RoutingDecision として監査記録）— 5.2, 5.3, 5.4, 5.6
-- [ ] 4.3 ルーティングのテスト（各カテゴリ→正しい mention、未登録→既定先、rule_version が監査に残る）— 5.2, 5.4, 5.6
-- [ ] 4.4 (P) `test_rca.py` にカテゴリ検証を追加（enum 外→other 正規化・既存推定品質の回帰なし）— 5.1
+- [x] 4.1 RCA プロンプトの JSON 出力に `category`（enum 4値）を追加し、`infer()` で `normalize_category`（shared）による語彙検証・不正値 "other" 正規化 — 5.1, 5.2
+- [x] 4.2 `routing.resolve(event_id, category)` を実装（routing_rules JOIN のみ・DB なしは in-code フォールバック・未登録は既定=班長＋WARN 記録・RoutingDecision を構造化ログで監査記録）＋ `_post_card` に結線 — 5.2, 5.3, 5.4, 5.6
+- [x] 4.3 ルーティングのテスト（正規化6ケース・カテゴリ→mention・未登録→既定先・監査材料の完全性）— 5.2, 5.4, 5.6 ✅TDD 4テスト
+- [x] 4.4 (P) `test_rca.py`（手動 Vertex 統合）にカテゴリ検証を追加。オフラインの enum 正規化は test_routing でカバー — 5.1 ※実呼び出しは task 11.3 で実施
 
 ## 5. エスカレーションエンジン
 

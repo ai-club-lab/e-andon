@@ -25,6 +25,7 @@ import feedback_store
 import frames_store
 import iot_store
 import migrations
+import routing
 import sinks
 import past_cases as pc
 from fastapi.responses import Response
@@ -124,8 +125,9 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
 
 async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
+    decision = await asyncio.to_thread(routing.resolve, ev.event_id, rca.category)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
-    await state.sink.post_card(ev, rca, None, deep_link)  # routing wired in task 4
+    await state.sink.post_card(ev, rca, decision, deep_link)
 
 
 async def _store_frame(event_id: str, jpg: bytes) -> None:

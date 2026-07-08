@@ -79,6 +79,16 @@ class IoTReading(BaseModel):
 
 CauseCategory = Literal["positioning", "conveyance", "sensor", "other"]
 
+CAUSE_CATEGORIES: tuple[str, ...] = ("positioning", "conveyance", "sensor", "other")
+
+
+def normalize_category(raw: object) -> CauseCategory:
+    """Server-side vocabulary guard (human-loop Req 5.1/5.4): the model's
+    category suggestion only passes if it is exactly one of the closed enum;
+    anything else — free text, None, casing drift — becomes "other"."""
+    s = str(raw).strip().lower() if raw is not None else ""
+    return s if s in CAUSE_CATEGORIES else "other"  # type: ignore[return-value]
+
 
 class RcaResult(BaseModel):
     """Root-cause inference output (Req 5)."""
