@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
+import analytics
 import escalation
 import event_store
 import feedback_store
@@ -634,6 +635,32 @@ _EVENT_PAGE = os.path.join(os.path.dirname(__file__), "static", "event.html")
 async def index() -> str:
     with open(_STATIC, encoding="utf-8") as fh:
         return fh.read()
+
+
+def _all_events() -> list[dict]:
+    return event_store.list_events() if db.enabled() else list(state.events.values())
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page() -> str:
+    with open(os.path.join(os.path.dirname(__file__), "static", "analytics.html"),
+              encoding="utf-8") as fh:
+        return fh.read()
+
+
+@app.get("/analytics/pareto")
+async def analytics_pareto(days: int = 7) -> dict:
+    return analytics.pareto(_all_events(), days)
+
+
+@app.get("/analytics/accuracy")
+async def analytics_accuracy(days: int = 30) -> dict:
+    return analytics.accuracy(feedback_store.load(), days)
+
+
+@app.get("/analytics/recurrence")
+async def analytics_recurrence(days: int = 7) -> dict:
+    return analytics.recurrence(_all_events(), feedback_store.load(), days)
 
 
 @app.get("/api/event/{event_id}")
