@@ -96,7 +96,8 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
         text = (f"⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。"
                 f"各機械センサー（速度・電流・振動・温度・エア圧）は正常のため、"
                 f"センサーに現れない位置決め機構側の問題と考えられます。"
-                f"真因は「{cause}」と推定されます（確信度 {rca_d['confidence']:.0%}）。"
+                # min(): rows restored from DB may predate the 0.95 cap in infer()
+                f"真因は「{cause}」と推定されます（確信度 {min(rca_d['confidence'], 0.95):.0%}）。"
                 f"根拠: {'; '.join(rca_d['evidence'][:2])}")
     else:
         text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
