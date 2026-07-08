@@ -237,7 +237,7 @@ function renderSidebar(){
     b.onclick=()=>selectLine(L.id); box.appendChild(b);
   }
 }
-function selectLine(id){ activeLine=id; renderSidebar(); renderCenter(); }
+function selectLine(id){ activeLine=id; for(const k in liveBuf) delete liveBuf[k]; renderSidebar(); renderCenter(); }
 
 // ---- center ----
 function renderCenter(){
@@ -313,15 +313,39 @@ function drawMini(canvasId, pts, cfg, opt){
     x.beginPath();x.moveTo(px(opt.cursor),padT);x.lineTo(px(opt.cursor),padT+h);x.stroke(); }
 }
 
-// deterministic demo series (normal band around the line's profile)
-function demoSeries(lineId, key){
-  const ck=lineId+':'+key; if(demoCache[ck]) return demoCache[ck];
-  const cfg=SENSORS[key], prof=(LINES.find(l=>l.id===lineId)||{}).prof||{};
-  const base=prof[key]!=null?prof[key]:cfg.base;
-  let s=0; for(const ch of ck) s=(s*131+ch.charCodeAt(0))>>>0;
-  const rnd=()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296-0.5; };
-  const pts=[]; for(let i=0;i<=50;i++){ pts.push([i/5, +(base+rnd()*cfg.amp*2).toFixed(3)]); }
-  demoCache[ck]=pts; return pts;
+// ---- live rolling sensor series (wall-clock) ----
+// Used for the other production lines (always running) and for the live line
+// AFTER it stops — a stopped belt still leaves the machine powered, so temp
+// cools gradually and vibration/air keep a faint residual instead of flatlining.
+const liveBuf={};            // "lineId:key" -> [[tSec,v],...] over the last LIVE_WINDOW s
+const LIVE_WINDOW=10;
+function sensorTarget(lineId, key){
+  const L=LINES.find(l=>l.id===lineId)||{}, cfg=SENSORS[key];
+  if(L.live && lineStatus==='stopped'){
+    if(key==='belt_speed')    return {base:0.0,  amp:0.04};   // belt halted
+    if(key==='motor_current') return {base:0.2,  amp:0.03};   // motor idle
+    if(key==='vibration')     return {base:0.09, amp:0.03};   // faint residual
+    if(key==='motor_temp'){ const s=stopSince?(Date.now()-stopSince)/1000:0;
+      return {base:Math.max(30, 42-0.05*s), amp:0.12}; }      // gradual cooldown
+    if(key==='air_pressure')  return {base:0.50, amp:0.006};  // still pressurized
+  }
+  const prof=L.prof||{};                                      // running: normal band
+  return {base: prof[key]!=null?prof[key]:cfg.base, amp:cfg.amp};
+}
+function sampleSensor(lineId, key){
+  const {base,amp}=sensorTarget(lineId,key);   // all channels are non-negative physical quantities
+  return +Math.max(0, base + (Math.random()-0.5)*amp*2).toFixed(3);
+}
+function pushLive(lineId, key){
+  const ck=lineId+':'+key, now=performance.now()/1000; let buf=liveBuf[ck];
+  if(!buf){ buf=liveBuf[ck]=[]; for(let t=now-LIVE_WINDOW;t<now;t+=0.4) buf.push([t,sampleSensor(lineId,key)]); }
+  buf.push([now, sampleSensor(lineId,key)]);
+  while(buf.length && now-buf[0][0]>LIVE_WINDOW) buf.shift();
+  return buf;
+}
+function drawLive(canvasId, buf, cfg){
+  const now=performance.now()/1000, pts=buf.map(([t,v])=>[t-(now-LIVE_WINDOW),v]);
+  drawMini(canvasId, pts, {color:'#5b6472'}, {base:cfg.base});
 }
 
 async function iotPoints(key){
@@ -342,15 +366,22 @@ async function redraw(){
       const mv=$('#mv-vis-'+k); if(mv){ mv.textContent=cur; mv.style.color=bad?'var(--alert)':''; }
       $('#mini-vis-'+k)?.classList.toggle('badv',bad);
     }
-    for(const k in SENSORS){ const cfg=SENSORS[k]; const all=await iotPoints(k);
-      const pts=all.filter(p=>p[0]<=curT());
-      drawMini('cv-sen-'+k, pts, {color:'#5b6472'}, {base:cfg.base, cursor:curT()});
-      const cur=pts.length?pts[pts.length-1][1]:cfg.base; const mv=$('#mv-sen-'+k); if(mv) mv.textContent=cur;
+    for(const k in SENSORS){ const cfg=SENSORS[k]; let cur;
+      if(lineStatus==='stopped'){                       // machine powered, belt halted — keep it alive
+        const buf=pushLive('A',k); drawLive('cv-sen-'+k, buf, cfg);
+        cur=buf[buf.length-1][1];
+      } else {                                          // running: real IoT log up to the play cursor
+        const all=await iotPoints(k); const pts=all.filter(p=>p[0]<=curT());
+        drawMini('cv-sen-'+k, pts, {color:'#5b6472'}, {base:cfg.base, cursor:curT()});
+        cur=pts.length?pts[pts.length-1][1]:cfg.base;
+        delete liveBuf['A:'+k];                         // reseed the live view fresh at the stop transition
+      }
+      const mv=$('#mv-sen-'+k); if(mv) mv.textContent=(+cur).toFixed(2);
     }
-  } else {
-    for(const k in SENSORS){ const cfg=SENSORS[k]; const pts=demoSeries(L.id,k);
-      drawMini('cv-sen-'+k, pts, {color:'#5b6472'}, {base:cfg.base});
-      const mv=$('#mv-sen-'+k); if(mv) mv.textContent=pts[pts.length-1][1].toFixed(2);
+  } else {                                              // other lines run independently — always live
+    for(const k in SENSORS){ const cfg=SENSORS[k];
+      const buf=pushLive(L.id,k); drawLive('cv-sen-'+k, buf, cfg);
+      const mv=$('#mv-sen-'+k); if(mv) mv.textContent=buf[buf.length-1][1].toFixed(2);
     }
   }
 }
