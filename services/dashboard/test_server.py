@@ -138,6 +138,7 @@ def test_should_open_correction_dialogue_when_event_exists(client, monkeypatch) 
     r = client.post("/correct", json={"event_id": "evt-ui-1", "message": "", "user_id": "op-1"}).json()
     assert r["reply"] == "現場では何が原因でしたか?（offset）"
     assert r["recorded"] is False
+    assert r["suggestions"] == server._cause_suggestions("offset")   # contextual reply chips
 
 
 def test_should_report_metrics_when_correction_is_recorded(client, monkeypatch) -> None:

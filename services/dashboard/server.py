@@ -155,8 +155,9 @@ async def _frames():
             ok, frame = cap.read()
             if not ok:
                 # play once, then hold on the stopped line indefinitely — the
-                # story ends stopped (choko-tei). Replaying is a fresh /stream
-                # connection from the client (no auto-loop).
+                # story ends stopped (choko-tei). The line restarts physically
+                # (an operator button on the machine), not from this dashboard;
+                # a fresh page load is naturally a new real-time recording.
                 while last_jpg is not None:
                     held = []
                     while not notifs.empty():
@@ -335,6 +336,19 @@ async def feedback(req: Request) -> dict:
     return {"ok": True, "metrics": feedback_store.metrics()}
 
 
+# Plausible answers the operator might give, by anomaly kind — shown as reply
+# chips during the correction dialogue (contextual, not the fixed log-query chips).
+_CAUSE_SUGGESTIONS = {
+    "offset": ["位置決め治具のガタ・摩耗", "ガイドレール固定ボルトの緩み", "送り機構の精度低下"],
+    "rotation": ["位置決め治具のガタ・摩耗", "ワーク受けの傾き", "送り機構の精度低下"],
+    "gap": ["送りインデックス機構のずれ", "搬送ベルト／チェーンの伸び", "ストッパ位置のずれ"],
+}
+
+
+def _cause_suggestions(kind: str) -> list[str]:
+    return _CAUSE_SUGGESTIONS.get(kind, _CAUSE_SUGGESTIONS["offset"])
+
+
 @app.post("/correct")
 async def correct(req: Request) -> dict:
     """Conversational HITL correction: the agent elicits the operator's tacit
@@ -363,6 +377,8 @@ async def correct(req: Request) -> dict:
     if result["recorded"]:
         out["metrics"] = feedback_store.metrics()
         out["cause"] = result.get("cause")
+    else:
+        out["suggestions"] = _cause_suggestions(ev["kind"])  # contextual reply chips
     return out
 
 

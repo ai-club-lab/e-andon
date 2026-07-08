@@ -76,9 +76,6 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .vcap .pill.ok{background:var(--ok-soft);color:var(--ok)}
 .vcap .pill.warn{background:#fff6e6;color:var(--warn)}
 .vcap .pill.alert{background:var(--alert-soft);color:var(--alert)}
-#replay{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s}
-#replay:hover{background:var(--bg)}
-#replay.hot{border-color:var(--alert);color:var(--alert);background:var(--alert-soft)}
 /* mini chart */
 .mini .mh{display:flex;align-items:baseline;gap:8px;padding:9px 12px 4px}
 .mini .mh .ml{font-size:12px;font-weight:600;color:var(--muted)}
@@ -168,12 +165,8 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
     <div class="composer" id="composer">
       <div class="cbanner"><span>✏️ 訂正モード — AIに現場の原因を教えています</span>
         <button class="cx" onclick="cancelCorrection()">やめる</button></div>
-      <div class="chips">
-        <span class="chip" onclick="ask(this)">ズレの原因は？</span>
-        <span class="chip" onclick="ask(this)">各センサーは正常？</span>
-        <span class="chip" onclick="ask(this)">ベルト速度の傾向は？</span>
-      </div>
-      <div class="inrow"><input id="q" placeholder="ラインやログについて質問…" onkeydown="if(event.key==='Enter')send()">
+      <div class="chips" id="chips"></div>
+      <div class="inrow"><input id="q" placeholder="ラインやログについて質問…" onkeydown="onKey(event)">
         <button onclick="send()">送信</button></div>
     </div>
   </aside>
@@ -256,11 +249,11 @@ function renderCenter(){
     if(!localStorage.getItem('eandon-guide-hide')){
       c.insertAdjacentHTML('beforeend', `
       <div class="guide"><button class="gx" onclick="localStorage.setItem('eandon-guide-hide','1');this.parentElement.remove()">✕</button>
-        <b>👀 デモの見方（1周 約60秒）</b><ol>
-        <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → ライン停止（チョコ停）</li>
+        <b>👀 デモの見方（リアルタイム監視・約60秒）</b><ol>
+        <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → 動画終了とともにライン停止（チョコ停）</li>
         <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
         <li>「✓ 正しい」で承認、「✗ 原因が違う」で<b>AIが対話で真因を質問</b> — 答えると事例化して次回に反映（AI正答率も更新）</li>
-        <li>「▶ もう一度再生」で何度でも。チャットで「各センサーは正常？」等の追加質問も可能</li></ol></div>`);
+        <li>チャットで「各センサーは正常？」等の追加質問も可能。もう一度見るにはページを再読み込み</li></ol></div>`);
     }
     c.insertAdjacentHTML('beforeend', `
       <div class="sect"><div class="card">
@@ -269,8 +262,7 @@ function renderCenter(){
         <div class="vcap"><span>検知部品 <b id="c-parts">–</b></span>
           <span id="c-flag" class="pill ok">整列 正常</span>
           <span id="stop-clock" style="display:none">⛔ 停止 00:00</span>
-          <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span>
-          <button id="replay" onclick="replay()">▶ もう一度再生</button></div>
+          <span style="margin-left:auto">t = <b id="c-ts">0.0</b> s</span></div>
       </div></div>
       <div class="sect"><div class="sect-h">画像解析 <span class="badge">AI ビジョン</span>
         <span class="note">カメラ映像から算出（センサー非搭載の整列機構を監視）</span></div>
@@ -279,7 +271,6 @@ function renderCenter(){
         <div class="grid g3" id="sensor-grid"></div></div>`);
     $('#frame').src = lastImg?('data:image/jpeg;base64,'+lastImg):'';
     $('#c-parts').textContent=lastParts; $('#c-ts').textContent=(+lastTs).toFixed(1);
-    $('#replay').classList.toggle('hot', lineStatus==='stopped');
     buildGrid('vision-grid', Object.keys(VISION), 'vis');
     buildGrid('sensor-grid', Object.keys(SENSORS), 'sen');
   } else {
@@ -384,7 +375,6 @@ function onFrame(e){
       if(lineStatus==='stopped'){ fp.className='pill alert'; fp.textContent='⛔ ライン停止'; }
       else if(flagged){ fp.className='pill warn'; fp.textContent='⚠ '+d.flags[0].reason; }
       else { fp.className='pill ok'; fp.textContent='整列 正常'; } }
-    $('#replay')?.classList.toggle('hot', lineStatus==='stopped');
   }
   // sidebar dot for line A + global status always
   const dot=$('#dot-A'); if(dot) dot.className='ld '+({running:'',warning:'warn',stopped:'alert',recovered:''}[lineStatus]||'');
@@ -392,15 +382,6 @@ function onFrame(e){
   for(const n of (d.notifications||[])){ addAlert(n); }
 }
 function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',onFrame); }
-function replay(){
-  if(es) es.close();
-  anomalySeen=false; anomalyCount=0; shownSig.clear();
-  hist.t=[];hist.offset=[];hist.angle=[];hist.gap=[]; lastImg=''; stopSince=0;
-  document.querySelectorAll('.alert-card').forEach(el=>el.remove());
-  $('#replay')?.classList.remove('hot'); updateStopClock();
-  if(correcting) cancelCorrection();
-  connect();
-}
 
 // ---- alerts (AI agent, live line only) ----
 const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
@@ -442,6 +423,15 @@ function addTyping(){ ensureFeed(); const d=document.createElement('div'); d.cla
 function markFbDone(btn){ const box=btn.closest('.fb'); if(box) box.querySelectorAll('button').forEach(b=>b.classList.add('done')); }
 function setComposerMode(on){ $('#composer').classList.toggle('correcting',on);
   $('#q').placeholder = on ? '現場の見立てを入力…（例: ガイドレールのボルトが緩んでいた）' : 'ラインやログについて質問…'; }
+// Enter submits — but NOT while the IME is mid-conversion (isComposing / legacy keyCode 229),
+// so confirming a kana→kanji candidate with Enter no longer fires an accidental send.
+function onKey(e){ if(e.key==='Enter' && !e.isComposing && e.keyCode!==229) send(); }
+// Reply chips: default free-chat prompts; during a correction, the候補 become
+// plausible ANSWERS to the AI's question (contextual to the anomaly, from /correct).
+const DEFAULT_CHIPS=['ズレの原因は？','各センサーは正常？','ベルト速度の傾向は？'];
+function renderChips(list){ const box=$('#chips'); if(!box) return; box.innerHTML='';
+  for(const t of (list&&list.length?list:DEFAULT_CHIPS)){
+    const s=document.createElement('span'); s.className='chip'; s.textContent=t; s.onclick=()=>ask(s); box.appendChild(s); } }
 
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);
@@ -456,19 +446,20 @@ async function startCorrection(btn,id){
   correcting.card?.classList.add('correcting');
   setComposerMode(true);
   const t=addTyping();
-  try{ const r=await postJSON('/correct',{event_id:id,message:'',user_id:UID}); t.remove(); addMsg('bot',r.reply); }
+  try{ const r=await postJSON('/correct',{event_id:id,message:'',user_id:UID});
+    t.remove(); addMsg('bot',r.reply); renderChips(r.suggestions); }
   catch(e){ t.remove(); addMsg('bot','応答の取得に失敗しました。'); }
   $('#q').focus();
 }
 function cancelCorrection(){
   correcting?.card?.classList.remove('correcting');
-  correcting=null; setComposerMode(false);
+  correcting=null; setComposerMode(false); renderChips(DEFAULT_CHIPS);
   addMsg('bot','訂正モードを終了しました。いつでも通知の「✗ 原因が違う」から再開できます。');
 }
 function finishCorrection(r){
   correcting?.card?.classList.remove('correcting');
   correcting?.card?.classList.add('corrected');
-  correcting=null; setComposerMode(false);
+  correcting=null; setComposerMode(false); renderChips(DEFAULT_CHIPS);
   if(r.metrics && r.metrics.total){ $('#k-acc').textContent=Math.round((r.metrics.correct_rate||0)*100)+'%'; }
   refreshMetrics();
 }
@@ -480,7 +471,8 @@ async function send(){
   try{
     if(correcting){
       const r=await postJSON('/correct',{event_id:correcting.event_id,message:m,user_id:UID});
-      t.remove(); addMsg('bot',r.reply); if(r.recorded) finishCorrection(r);
+      t.remove(); addMsg('bot',r.reply);
+      if(r.recorded) finishCorrection(r); else renderChips(r.suggestions);
     } else {
       const r=await postJSON('/chat',{message:m,user_id:UID});
       t.remove(); addMsg('bot',r.reply);
@@ -490,7 +482,7 @@ async function send(){
 }
 
 // ---- boot ----
-renderSidebar(); setGlobalStatus(); renderCenter(); connect();
+renderSidebar(); setGlobalStatus(); renderCenter(); connect(); renderChips();
 setInterval(redraw,500); refreshMetrics(); setInterval(refreshMetrics,5000);
 setInterval(updateStopClock,1000);
 </script>
