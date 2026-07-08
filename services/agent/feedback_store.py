@@ -13,7 +13,10 @@ from pathlib import Path
 
 from chokotei_shared import db
 
-STORE = Path(os.environ.get("FEEDBACK_STORE", "data/feedback/feedback.jsonl"))
+def _store() -> Path:
+    # resolved per call (not at import) so test env vars win regardless of
+    # module import order across the suite
+    return Path(os.environ.get("FEEDBACK_STORE", "data/feedback/feedback.jsonl"))
 
 
 def save(record: dict) -> None:
@@ -28,8 +31,9 @@ def save(record: dict) -> None:
              record.get("actor_surface"), record.get("actor_id"), record.get("actor_name")),
         )
         return
-    STORE.parent.mkdir(parents=True, exist_ok=True)
-    with STORE.open("a") as fh:
+    store = _store()
+    store.parent.mkdir(parents=True, exist_ok=True)
+    with store.open("a") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
@@ -38,9 +42,10 @@ def load() -> list[dict]:
         return db.fetch(
             "SELECT event_id, verdict, human_cause, kind, peak, actor_surface, actor_id, "
             "actor_name, EXTRACT(EPOCH FROM created_at) AS ts FROM feedback ORDER BY id")
-    if not STORE.exists():
+    store = _store()
+    if not store.exists():
         return []
-    with STORE.open() as fh:
+    with store.open() as fh:
         return [json.loads(line) for line in fh if line.strip()]
 
 

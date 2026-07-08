@@ -47,10 +47,10 @@
 
 ## 6. Slack 受信（署名検証・裁定ボタン）
 
-- [ ] 6.1 `/slack/interactivity` と `/slack/events` ルートを実装（SignatureVerifier・timestamp 5分窓・検証失敗 401+記録・url_verification 対応・即 200 → asyncio 本処理）— 10.4
-- [ ] 6.2 block_actions（正しい/違う）→ `_record_verdict`(actor=Slack ID/表示名) → `update_card` で裁定結果反映 → エスカレーション取消 — 2.1, 2.2, 2.5, 4.1, 6.4
-- [ ] 6.3 裁定状態の両面同期（Slack 裁定がダッシュボード表示に反映、逆も。既裁定は両面で裁定済み提示）— 2.3, 2.4
-- [ ] 6.4 録画ペイロードのフィクスチャテスト（署名実計算・不正署名 401・ボタン→1レコード・再送でも二重記録なし）— 2.1, 2.4, 10.4, 10.6
+- [x] 6.1 `/slack/interactivity` と `/slack/events` ルートを実装（署名検証 per-request・5分窓・失敗 401+WARN・未設定 503・url_verification・即 ACK→asyncio 本処理・handler 注入で循環 import 回避）— 10.4, 10.6
+- [x] 6.2 block_actions「正しい」→ `_record_verdict`(actor=Slack ID/表示名) → `_after_verdict`（update_card+エスカレーション取消、task 5 で配線済み）。「違う」→ on_wrong フック（task 7 で訂正対話に接続）— 2.1, 2.2, 2.5, 4.1, 6.4
+- [x] 6.3 裁定状態の両面同期（`/events` に最新 verdict+actor を付与。Slack 側は update_card、既裁定は `_record_verdict` の prior 返却）— 2.3, 2.4
+- [x] 6.4 フィクスチャテスト（HMAC 実計算・不正署名/古い ts 401・challenge 応答・ボタン→単一レコード actor=slack・再送冪等・secret なし 503）— 2.1, 2.4, 10.4, 10.6 ✅ATDD 7テスト、計39緑
 
 ## 7. Slack スレッド訂正対話
 

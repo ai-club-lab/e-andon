@@ -29,6 +29,7 @@ import migrations
 import notif_store
 import routing
 import sinks
+import slack_routes
 import past_cases as pc
 from fastapi.responses import Response
 from chokotei_shared import (
@@ -266,9 +267,19 @@ async def stream() -> EventSourceResponse:
 
 @app.get("/events")
 async def events() -> list[dict]:
-    if db.enabled():
-        return event_store.list_events()
-    return list(state.events.values())
+    recs = event_store.list_events() if db.enabled() else list(state.events.values())
+    # both-surface verdict sync (Req 2.3): one load, latest verdict per event
+    latest: dict[str, dict] = {}
+    for row in feedback_store.load():
+        latest[row.get("event_id", "")] = row
+    for rec in recs:
+        v = latest.get(rec["event"]["event_id"])
+        rec["verdict"] = ({"verdict": v.get("verdict"),
+                           "actor_surface": v.get("actor_surface"),
+                           "actor_id": v.get("actor_id"),
+                           "actor_name": v.get("actor_name"),
+                           "at": v.get("ts")} if v else None)
+    return recs
 
 
 @app.get("/iot")
@@ -534,6 +545,9 @@ async def healthz() -> dict:
             "session_db": bool(__import__("chokotei_shared").GCP.session_db_url),
             "events": len(state.events)}
 
+
+app.include_router(slack_routes.router)
+slack_routes.configure(record_verdict=_record_verdict)  # on_wrong/on_message: task 7
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
 
