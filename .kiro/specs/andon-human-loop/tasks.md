@@ -54,10 +54,10 @@
 
 ## 7. Slack スレッド訂正対話
 
-- [ ] 7.1 スレッド返信の対応付け（thread_ts == notifications.message_ts かつ bot 以外のみ）→ `elicit_correction`(user_id=Slack ID) → 応答を post_thread — 3.1, 3.2
-- [ ] 7.2 「違う」ボタン押下でスレッドに訂正対話の開始メッセージを投稿（既存の空メッセージ起動と同じ）— 3.1
-- [ ] 7.3 訂正確定時のスレッド要約提示（確定 cause の復唱＋次回反映の一言）— 3.3, 3.4
-- [ ] 7.4 スレッド訂正の結合テスト（フィクスチャ返信→ elicit_correction 呼び出し→ record 済みで要約投稿。Vertex モック）— 3.2, 3.3
+- [x] 7.1 スレッド返信の対応付け（`_slack_on_message`: thread_ts == notifications.message_ts・bot はルート層で除外・無関係スレッド無視）→ `elicit_correction`(user_id=Slack ID, actor 伝搬) → 応答を post_thread — 3.1, 3.2
+- [x] 7.2 「違う」ボタン → `_slack_on_wrong`（既裁定ガード付き・空メッセージ起動・touch_correction でタイムアウト監視開始）— 3.1
+- [x] 7.3 訂正確定時のスレッド要約（確定 cause 復唱＋次回反映の一言）＋ update_card("wrong")＋エスカレーション取消。recorder に actor 伝搬（Slack/dashboard 両面の訂正が監査に帰属）— 3.3, 3.4
+- [x] 7.4 スレッド訂正の結合テスト（開始対話・返信→記録→要約・無関係スレッド無視。Vertex モック）— 3.2, 3.3 ✅BDD 3テスト、計42緑
 
 ## 8. モバイル裁定ページ（deep link 先）
 

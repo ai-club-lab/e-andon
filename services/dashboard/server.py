@@ -455,10 +455,8 @@ async def correct(req: Request) -> dict:
     rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
     if not rec:
         return {"reply": "対象の異常が見つかりません。", "recorded": False}
+    ctx = _correction_ctx(rec, Actor(surface="dashboard", user_id=user_id))
     ev = rec["event"]
-    ai = rec.get("rca") or {}
-    ctx = {"event_id": event_id, "kind": ev["kind"],
-           "ai_cause": "、".join(ai.get("cause_candidates", [])[:2])}
     try:
         result = await elicit_correction(ctx, message, user_id=user_id)
     except Exception:  # surfaced + logged, never a raw 500 (Req 5.6)
@@ -495,7 +493,9 @@ async def _wire_correction() -> None:
     """Let the correction agent's record_correction tool persist through the
     dashboard's shared reflux path (past_cases + audit + cache invalidation)."""
     set_correction_recorder(
-        lambda ev_ctx, cause, note: _persist_correction(ev_ctx["event_id"], cause, note))
+        lambda ev_ctx, cause, note: _persist_correction(
+            ev_ctx["event_id"], cause, note,
+            actor=Actor(**ev_ctx["actor"]) if ev_ctx.get("actor") else None))
 
 
 @app.on_event("startup")
@@ -546,8 +546,79 @@ async def healthz() -> dict:
             "events": len(state.events)}
 
 
+def _event_rec(event_id: str) -> dict | None:
+    return event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
+
+
+def _correction_ctx(rec: dict, actor: Actor) -> dict:
+    ev, ai = rec["event"], rec.get("rca") or {}
+    return {"event_id": ev["event_id"], "kind": ev["kind"],
+            "ai_cause": "、".join(ai.get("cause_candidates", [])[:2]),
+            "actor": actor.model_dump()}
+
+
+async def _slack_on_wrong(event_id: str, actor: Actor) -> None:
+    """「違う」ボタン → open the correction dialogue in the card's thread (Req 3.1)."""
+    rec = _event_rec(event_id)
+    nrec = await asyncio.to_thread(notif_store.get, event_id)
+    if not rec or nrec is None:
+        return
+    prior = feedback_store.get_verdict(event_id)
+    if prior:  # both-surface guard (Req 2.4)
+        who = prior.get("actor_name") or prior.get("actor_id") or "?"
+        await state.sink.post_thread(
+            nrec, f"このイベントは裁定済みです（{prior.get('verdict')} / {who}）。")
+        return
+    try:
+        result = await elicit_correction(_correction_ctx(rec, actor), "",
+                                         user_id=actor.user_id)
+    except Exception:  # surfaced, never silent (Req 5.6 posture)
+        logger.exception("slack correction open failed",
+                         extra={"ctx": {"event_id": event_id}})
+        await state.sink.post_thread(nrec, "訂正対話を開始できませんでした。少し待って再度お試しください。")
+        return
+    state.engine.touch_correction(event_id)  # 30-min timeout watch (Req 3.5)
+    await state.sink.post_thread(nrec, result["reply"])
+
+
+async def _slack_on_message(event: dict) -> None:
+    """Thread replies to our cards drive the correction agent (Req 3.1–3.4).
+    Correlation: thread_ts == our card's message_ts; bots are filtered upstream."""
+    thread_ts = event.get("thread_ts")
+    if not thread_ts:
+        return
+    nrec = await asyncio.to_thread(notif_store.by_message_ts, thread_ts)
+    if nrec is None:
+        return  # unrelated thread
+    rec = _event_rec(nrec.event_id)
+    if not rec:
+        return
+    actor = Actor(surface="slack", user_id=event.get("user", "?"))
+    try:
+        result = await elicit_correction(_correction_ctx(rec, actor),
+                                         (event.get("text") or "").strip()[:MAX_MESSAGE_LEN],
+                                         user_id=actor.user_id)
+    except Exception:
+        logger.exception("slack correction turn failed",
+                         extra={"ctx": {"event_id": nrec.event_id}})
+        await state.sink.post_thread(nrec, "応答の生成に失敗しました。もう一度お書きください。")
+        return
+    if result["recorded"]:
+        state.engine.close_correction(nrec.event_id)
+        await state.engine.cancel(nrec.event_id)
+        cause = result.get("cause") or ""
+        await state.sink.post_thread(
+            nrec, f"✅ 訂正を記録しました: {cause}\n"
+                  f"次回同種の異常では、この原因を最優先の候補として提示します。")
+        await state.sink.update_card(nrec, "wrong", actor)
+    else:
+        state.engine.touch_correction(nrec.event_id)
+        await state.sink.post_thread(nrec, result["reply"])
+
+
 app.include_router(slack_routes.router)
-slack_routes.configure(record_verdict=_record_verdict)  # on_wrong/on_message: task 7
+slack_routes.configure(record_verdict=_record_verdict,
+                       on_wrong=_slack_on_wrong, on_message=_slack_on_message)
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
 

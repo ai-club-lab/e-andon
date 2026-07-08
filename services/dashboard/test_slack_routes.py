@@ -137,6 +137,85 @@ def test_dashboard_events_expose_verdict_state(client) -> None:
     assert ev["verdict"]["actor_surface"] == "slack"
 
 
+# --- thread correction dialogue (task 7, Req 3) ---
+
+class _FakeSink:
+    def __init__(self) -> None:
+        self.threads: list[str] = []
+        self.updates: list[tuple[str, str]] = []
+
+    def enabled(self) -> bool:
+        return True
+
+    async def post_thread(self, rec, text: str) -> None:
+        self.threads.append(text)
+
+    async def update_card(self, rec, verdict: str, actor) -> None:
+        self.updates.append((verdict, actor.user_id))
+
+
+def _seed_notification(event_id: str = "evt-sl-1", ts: str = "111.222") -> None:
+    import notif_store
+    from chokotei_shared import NotificationRecord
+    notif_store.save(NotificationRecord(event_id=event_id, channel_id="C1",
+                                        message_ts=ts, posted_at=1.0))
+
+
+def test_wrong_button_opens_thread_dialogue(client, monkeypatch) -> None:
+    """Req 3.1: 「違う」 opens the correction dialogue in the card's thread."""
+    import asyncio as aio
+    from chokotei_shared import Actor
+    _seed_event()
+    _seed_notification()
+    sink = _FakeSink()
+    monkeypatch.setattr(server.state, "sink", sink)
+    calls = []
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        calls.append((ctx, message, user_id))
+        return {"reply": "現場では何が原因と見ていますか？", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    aio.run(server._slack_on_wrong("evt-sl-1", Actor(surface="slack", user_id="U777")))
+    assert calls and calls[0][1] == "" and calls[0][2] == "U777"
+    assert sink.threads and "原因" in sink.threads[0]
+
+
+def test_thread_reply_reaches_agent_and_summary_on_record(client, monkeypatch) -> None:
+    """Req 3.2/3.3/3.4: a reply drives one turn; recording posts the summary."""
+    import asyncio as aio
+    _seed_event()
+    _seed_notification()
+    sink = _FakeSink()
+    monkeypatch.setattr(server.state, "sink", sink)
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        assert ctx.get("actor", {}).get("user_id") == "U777"   # attribution flows
+        return {"reply": "記録しました", "recorded": True,
+                "cause": "ガイドレール固定ボルトの緩み"}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    aio.run(server._slack_on_message({
+        "type": "message", "thread_ts": "111.222", "user": "U777",
+        "text": "ボルトが緩んでいた"}))
+    assert any("ガイドレール固定ボルトの緩み" in t for t in sink.threads), \
+        "confirmed cause is echoed into the thread"
+    assert sink.updates and sink.updates[0][0] == "wrong", "card reflects the correction"
+
+
+def test_unrelated_thread_replies_are_ignored(client, monkeypatch) -> None:
+    """Req 3.1: only replies to our notification cards reach the agent."""
+    import asyncio as aio
+    _seed_event()
+    _seed_notification(ts="111.222")
+    called = []
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        called.append(1)
+        return {"reply": "x", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    aio.run(server._slack_on_message({
+        "type": "message", "thread_ts": "999.999", "user": "U777", "text": "hi"}))
+    aio.run(server._slack_on_message({
+        "type": "message", "user": "U777", "text": "not in a thread"}))
+    assert not called
+
+
 def test_inbound_disabled_without_secret(client, monkeypatch) -> None:
     """Req 10.6: without SLACK_SIGNING_SECRET the inbound surface refuses."""
     monkeypatch.delenv("SLACK_SIGNING_SECRET")
