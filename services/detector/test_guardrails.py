@@ -2,7 +2,7 @@
 
 Confirms the heavy decision (anomaly confirmation) is deterministic CV, not an
 LLM (guardrail: heavy decisions outside the model + audit log), and that region
-config matches the standard (model=us-central1, runtime=asia-northeast1).
+config matches the standard (model=global endpoint, runtime=asia-northeast1).
 Run: `python services/detector/test_guardrails.py`
 """
 from __future__ import annotations
@@ -27,7 +27,8 @@ def test_detection_is_deterministic() -> None:
 
 
 def test_regions_match_standard() -> None:
-    assert GCP.model_region == "us-central1", GCP.model_region
+    # Gemini 3 family is global-endpoint only; runtime stays in Tokyo.
+    assert GCP.model_region == "global", GCP.model_region
     assert GCP.runtime_region == "asia-northeast1", GCP.runtime_region
 
 

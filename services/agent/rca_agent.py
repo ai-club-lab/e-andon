@@ -1,6 +1,6 @@
 """RCA orchestrator agent (design.md §8, Req 5).
 
-Root LlmAgent (Gemini 2.5 Flash on Vertex via ADC) with FunctionTools for
+Root LlmAgent (Gemini 3 Flash on Vertex via ADC) with FunctionTools for
 IoT correlation and past-case retrieval (AgentTool pattern; no transfer_to_agent).
 ``infer`` runs the agent over an AnomalyEvent and returns a structured RcaResult.
 

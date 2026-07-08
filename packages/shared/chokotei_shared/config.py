@@ -58,10 +58,14 @@ def _session_db_url() -> str:
 class GcpConfig:
     """GCP wiring (Req 10). Regions per gcp-integration.md."""
 
+    # Gemini 3 family is served on the "global" endpoint (regional 404s);
+    # gemini-embedding-001 works there too, so all model calls share one location.
     project_id: str = os.environ.get("GCP_PROJECT", "fhack26-aiclub")
-    model_region: str = os.environ.get("MODEL_REGION", "us-central1")
+    model_region: str = os.environ.get("MODEL_REGION", "global")
     runtime_region: str = os.environ.get("RUNTIME_REGION", "asia-northeast1")
-    gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    # gemini-2.5-flash is scheduled for shutdown on 2026-10-16; we follow the
+    # ADK 2.3 default onto gemini-3-flash-preview (rollback: set GEMINI_MODEL).
+    gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
     session_db_url: str = _session_db_url()
     frames_bucket: str = os.environ.get("FRAMES_BUCKET", "")
 

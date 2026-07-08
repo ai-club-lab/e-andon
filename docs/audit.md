@@ -38,7 +38,8 @@
 
 ## リージョン（Req 10.6）
 
-- モデル呼び出し = **us-central1**（新モデルが早い）／ 実行基盤・Cloud SQL・AR・GCS = **asia-northeast1**。
+- モデル呼び出し = **global エンドポイント**（Gemini 3 系は global 提供のみ。embedding も同居）／
+  実行基盤・Cloud SQL・AR・GCS = **asia-northeast1**。
 - `test_guardrails.py` で `GCP.model_region` / `GCP.runtime_region` を検証。
 
 ## コスト（Req 10.2）

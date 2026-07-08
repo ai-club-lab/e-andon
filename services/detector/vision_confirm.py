@@ -2,7 +2,7 @@
 
 The deterministic CV stage decides clear anomalies on its own; only flags in the
 borderline band (design §2, DETECTION.band_low..band_high) are sent here. We crop
-around the suspect part and ask Gemini 2.5 Flash a yes/no alignment question, so
+around the suspect part and ask Gemini (GCP.gemini_model) a yes/no alignment question, so
 the expensive model call is rare (de-risk #4: cost/429).
 """
 from __future__ import annotations
