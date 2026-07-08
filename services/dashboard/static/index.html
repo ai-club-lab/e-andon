@@ -50,6 +50,9 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .menu-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;color:var(--muted);
   border-radius:10px;padding:8px 10px;font-size:13px;cursor:pointer}
 .menu-item:hover{background:var(--bg);color:var(--ink)}
+.menu-item:disabled{opacity:.45;cursor:not-allowed}
+.menu-item:disabled:hover{background:none;color:var(--muted)}
+.menu-soon{margin-left:auto;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 5px}
 /* center (scrolls) */
 .center{flex:1;overflow-y:auto;min-width:0;padding:18px 22px}
 .line-title{display:flex;align-items:center;gap:12px;margin-bottom:14px}
@@ -69,7 +72,9 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .tag{font-size:11px;font-weight:600;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
 /* video */
 .video-wrap{position:relative;background:#0c0e14}
-.video-wrap img{display:block;width:100%;aspect-ratio:1014/634;object-fit:cover}
+.video-wrap img{display:block;position:relative;z-index:1;width:100%;aspect-ratio:1014/634;object-fit:cover}
+.video-wrap img[src=""],.video-wrap img:not([src]){visibility:hidden}
+.video-ph{position:absolute;inset:0;z-index:0;display:flex;align-items:center;justify-content:center;color:#8b93a7;font-size:13px}
 .vcap{display:flex;align-items:center;gap:14px;padding:10px 14px;font-size:13px;color:var(--muted);flex-wrap:wrap}
 .vcap b{color:var(--ink)}
 .vcap .pill{font-weight:700;border-radius:999px;padding:3px 10px;font-size:12px}
@@ -150,15 +155,15 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
     <div class="side-h">生産ライン</div>
     <div id="lines"></div>
     <div class="side-h" style="margin-top:16px">メニュー</div>
-    <button class="menu-item">▤ ダッシュボード</button>
-    <button class="menu-item">◔ アラート履歴</button>
-    <button class="menu-item">⚙ 設定</button>
+    <button class="menu-item" disabled title="このデモでは対象外です">▤ ダッシュボード<span class="menu-soon">準備中</span></button>
+    <button class="menu-item" disabled title="このデモでは対象外です">◔ アラート履歴<span class="menu-soon">準備中</span></button>
+    <button class="menu-item" disabled title="このデモでは対象外です">⚙ 設定<span class="menu-soon">準備中</span></button>
   </aside>
 
   <main class="center" id="center"></main>
 
   <aside class="chat">
-    <div class="chat-h">🤖 AI アシスタント<span class="tag" style="margin-left:auto">ADK · Gemini 2.5</span></div>
+    <div class="chat-h">🤖 AI アシスタント<span class="tag" style="margin-left:auto">ADK · Gemini 3</span></div>
     <div class="feed" id="feed">
       <div class="empty" id="empty">全ラインを監視しています。<br>異常を検知すると、推定原因とともにここに通知します。<br>下の入力からログ照会もできます。</div>
     </div>
@@ -258,7 +263,7 @@ function renderCenter(){
     c.insertAdjacentHTML('beforeend', `
       <div class="sect"><div class="card">
         <div class="card-h">ライン映像<span class="tag">俯瞰カメラ + 画像解析</span><span class="live">LIVE</span></div>
-        <div class="video-wrap"><img id="frame" alt="line"></div>
+        <div class="video-wrap"><img id="frame" alt="line"><div class="video-ph">📡 映像ストリーム接続中…</div></div>
         <div class="vcap"><span>検知部品 <b id="c-parts">–</b></span>
           <span id="c-flag" class="pill ok">整列 正常</span>
           <span id="stop-clock" style="display:none">⛔ 停止 00:00</span>
@@ -419,6 +424,8 @@ const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
 function ensureFeed(){ if(!hasContent){ $('#empty')?.remove(); hasContent=true; } }
 function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
   d.className='msg '+cls; d.textContent=text; feed.appendChild(d); feed.scrollTop=feed.scrollHeight; }
+// LLM self-reported confidence is calibration-free — never show a flat 100%
+function confPct(v){ return Math.round(Math.min(v||0,0.95)*100); }
 async function addAlert(n){
   if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
@@ -432,8 +439,8 @@ async function addAlert(n){
   div.innerHTML=
     '<div class="ah">🤖 AIエージェント · 組立ライン1</div>'+
     '<div class="ab"><div class="cause">'+(n.text||'異常を検知しました')+'</div>'+
-    '<div class="conf"><div class="bar"><i style="width:'+Math.round(c.confidence*100)+'%"></i></div>'+
-    '<small>確信度 '+Math.round(c.confidence*100)+'%</small></div>'+
+    '<div class="conf"><div class="bar"><i style="width:'+confPct(c.confidence)+'%"></i></div>'+
+    '<small>確信度 '+confPct(c.confidence)+'%</small></div>'+
     '<div class="evi">参照ログ: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
