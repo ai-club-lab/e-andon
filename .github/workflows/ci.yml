@@ -35,10 +35,12 @@ jobs:
       - name: Install deps (dashboard)
         working-directory: services/dashboard
         run: pip install -r requirements.txt httpx
-      - name: Offline UI tests (dashboard API — chat / feedback / metrics)
+      - name: Shared contract tests (human-loop types)
+        run: python -m pytest -q packages/shared/test_contracts.py
+      - name: Offline UI + human-loop tests (dashboard API / sinks / routing / escalation / Slack inbound / analytics)
         env:
           PYTHONPATH: services/dashboard:services/agent:services/detector
-        run: python -m pytest -q services/dashboard/test_server.py
+        run: python -m pytest -q services/dashboard/
       - name: Compile sanity (all services)
         run: |
           python -m py_compile \
