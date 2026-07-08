@@ -231,6 +231,33 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
+def _photo_evidence(event: AnomalyEvent) -> list[types.Part]:
+    """Multimodal reflux (human-loop Req 9.3): when the closest past case has a
+    field photo, attach ONLY that one to the prompt (top-1 — context/cost cap).
+    Never breaks inference: any failure returns no parts."""
+    try:
+        import attachments_store
+        import past_cases as pc
+
+        hits = pc.search(f"{event.kind} 整列異常 センサー正常")
+        top = hits[0] if hits else None
+        if top is None or not top.attachment_uri:
+            return []
+        data = attachments_store.get_bytes(top.attachment_uri)
+        if not data:
+            return []
+        logger.info("attaching past-case field photo",
+                    extra={"ctx": {"case": top.source_event_id}})
+        return [types.Part(text=f"参考: 類似の過去事例（確定原因: {top.correct_cause}）で"
+                                f"現場が撮影した原因箇所の写真を添付します。"),
+                types.Part.from_bytes(
+                    data=data, mime_type=attachments_store.mime_of(top.attachment_uri))]
+    except Exception:
+        logger.warning("photo evidence lookup failed (continuing text-only)",
+                       exc_info=True)
+        return []
+
+
 async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
     """Run the RCA agent over an anomaly event and return a structured result.
 
@@ -244,7 +271,9 @@ async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
         f"ピーク逸脱={event.peak_magnitude:.1f} 発生時刻={event.started_ts:.2f}s。"
         f"この異常の原因を推定してください。"
     )
-    msg = types.Content(role="user", parts=[types.Part(text=prompt)])
+    parts = [types.Part(text=prompt)]
+    parts += _photo_evidence(event)  # top-1 past-case field photo (human-loop Req 9.3)
+    msg = types.Content(role="user", parts=parts)
     final_text = ""
     tool_calls: list[str] = []
     async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):

@@ -16,11 +16,12 @@ import re
 import time
 
 import cv2
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
 import analytics
+import attachments_store
 import escalation
 import event_store
 import feedback_store
@@ -359,7 +360,10 @@ def _persist_correction(event_id: str, cause: str, evidence_note: str = "",
     })
     detail = f"（現場の補足: {note}）" if note else ""
     summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {cause}{detail}"
-    pc.add(FeedbackCase(summary=summary, correct_cause=cause, source_event_id=event_id))
+    # a pending field photo rides the correction into the case (Req 9.2)
+    attachment = attachments_store.uri_for(event_id)
+    pc.add(FeedbackCase(summary=summary, correct_cause=cause, source_event_id=event_id,
+                        attachment_uri=attachment))
     state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"recorded": True, "metrics": feedback_store.metrics()}
 
@@ -495,6 +499,35 @@ async def frame_img(event_id: str) -> Response:
     return Response(content=data, media_type="image/jpeg")
 
 
+@app.post("/correct/attachment")
+async def correct_attachment(event_id: str, file: UploadFile, req: Request) -> dict:
+    """Attach ONE field photo to a pending correction (Req 9.1/9.5). Optional —
+    the correction completes without it. Stored privately, served by proxy only."""
+    if not _rate_ok(req):
+        return {"ok": False, "error": "rate limited"}
+    if not _event_rec(event_id):
+        return {"ok": False, "error": "unknown event"}
+    data = await file.read()
+    reason = attachments_store.validate(file.content_type or "", len(data))
+    if reason:
+        return {"ok": False, "error": reason}
+    uri = await asyncio.to_thread(
+        attachments_store.save_pending, event_id, data, file.content_type)
+    logger.info("field photo attached",
+                extra={"ctx": {"event_id": event_id, "bytes": len(data)}})
+    return {"ok": True, "uri": uri}
+
+
+@app.get("/attachment/{event_id}")
+async def attachment_img(event_id: str) -> Response:
+    """Proxy the field photo (store stays private, Req 9.6)."""
+    uri = await asyncio.to_thread(attachments_store.uri_for, event_id)
+    data = await asyncio.to_thread(attachments_store.get_bytes, uri) if uri else None
+    if data is None:
+        return Response(status_code=404)
+    return Response(content=data, media_type=attachments_store.mime_of(uri))
+
+
 @app.on_event("startup")
 async def _wire_correction() -> None:
     """Let the correction agent's record_correction tool persist through the
@@ -564,6 +597,19 @@ def _correction_ctx(rec: dict, actor: Actor) -> dict:
             "actor": actor.model_dump()}
 
 
+def _download_slack_file(url_private: str) -> bytes | None:
+    """Fetch a Slack-hosted file with the bot token (files:read, Req 9.3)."""
+    import urllib.request
+    req = urllib.request.Request(
+        url_private, headers={"Authorization": f"Bearer {SLACK.bot_token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return resp.read(attachments_store.MAX_BYTES + 1)[:attachments_store.MAX_BYTES]
+    except Exception:
+        logger.exception("slack file download failed")
+        return None
+
+
 async def _slack_on_wrong(event_id: str, actor: Actor) -> None:
     """「違う」ボタン → open the correction dialogue in the card's thread (Req 3.1)."""
     rec = _event_rec(event_id)
@@ -601,9 +647,19 @@ async def _slack_on_message(event: dict) -> None:
     if not rec:
         return
     actor = Actor(surface="slack", user_id=event.get("user", "?"))
+    text = (event.get("text") or "").strip()[:MAX_MESSAGE_LEN]
+    # one field photo per correction (Req 9.1/9.3): validate, store privately
+    for f in (event.get("files") or [])[:1]:
+        ct, size = f.get("mimetype", ""), int(f.get("size") or 0)
+        if f.get("url_private") and attachments_store.validate(ct, size) is None:
+            data = await asyncio.to_thread(_download_slack_file, f["url_private"])
+            if data:
+                await asyncio.to_thread(
+                    attachments_store.save_pending, nrec.event_id, data, ct)
+                await state.sink.post_thread(nrec, "📷 写真を受け取りました。訂正確定時に事例へ添付します。")
+                text = text or "（原因箇所の写真を添付しました）"
     try:
-        result = await elicit_correction(_correction_ctx(rec, actor),
-                                         (event.get("text") or "").strip()[:MAX_MESSAGE_LEN],
+        result = await elicit_correction(_correction_ctx(rec, actor), text,
                                          user_id=actor.user_id)
     except Exception:
         logger.exception("slack correction turn failed",

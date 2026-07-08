@@ -41,9 +41,11 @@ def _tokens(s: str) -> set[str]:
 
 def _stored() -> list[FeedbackCase]:
     if db.enabled():
-        rows = db.fetch("SELECT summary, correct_cause, source_event_id FROM past_cases")
+        rows = db.fetch(
+            "SELECT summary, correct_cause, source_event_id, attachment_uri FROM past_cases")
         return [FeedbackCase(summary=r["summary"], correct_cause=r["correct_cause"],
-                             source_event_id=r["source_event_id"] or "") for r in rows]
+                             source_event_id=r["source_event_id"] or "",
+                             attachment_uri=r.get("attachment_uri")) for r in rows]
     if STORE.exists():
         with STORE.open() as fh:
             return [FeedbackCase(**json.loads(line)) for line in fh if line.strip()]
@@ -75,10 +77,10 @@ def add(case: FeedbackCase) -> None:
     if db.enabled():
         v = emb.embed(f"{case.summary} {case.correct_cause}")
         db.execute(
-            "INSERT INTO past_cases (summary, correct_cause, source_event_id, embedding) "
-            "VALUES (%s, %s, %s, %s::vector)",
+            "INSERT INTO past_cases (summary, correct_cause, source_event_id, embedding, "
+            "attachment_uri) VALUES (%s, %s, %s, %s::vector, %s)",
             (case.summary, case.correct_cause, case.source_event_id,
-             emb.to_vector_literal(v) if v else None),
+             emb.to_vector_literal(v) if v else None, case.attachment_uri),
         )
         return
     STORE.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +102,7 @@ def _vector_search(query: str, k: int) -> list[FeedbackCase] | None:
         return None
     try:
         rows = db.fetch(
-            "SELECT summary, correct_cause, source_event_id "
+            "SELECT summary, correct_cause, source_event_id, attachment_uri "
             "FROM past_cases WHERE embedding IS NOT NULL "
             "ORDER BY embedding <=> %s::vector LIMIT %s",
             (emb.to_vector_literal(qv), k))
@@ -108,7 +110,8 @@ def _vector_search(query: str, k: int) -> list[FeedbackCase] | None:
         logger.warning("pgvector search failed; keyword fallback", exc_info=True)
         return None
     return [FeedbackCase(summary=r["summary"], correct_cause=r["correct_cause"],
-                         source_event_id=r["source_event_id"] or "") for r in rows]
+                         source_event_id=r["source_event_id"] or "",
+                         attachment_uri=r.get("attachment_uri")) for r in rows]
 
 
 def search(query: str, k: int = 3) -> list[FeedbackCase]:

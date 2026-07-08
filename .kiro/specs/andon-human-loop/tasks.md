@@ -68,12 +68,12 @@
 
 ## 9. 現場写真の添付とマルチモーダル還流
 
-- [ ] 9.1 `attachments_store` を実装（GCS 非公開保存・`/attachment/{event_id}` プロキシ・image/* かつ 10MB 検証）— 9.2, 9.5, 9.6
-- [ ] 9.2 モバイル訂正ページに写真添付（`POST /correct/attachment`。スキップ可）— 9.1, 9.4
-- [ ] 9.3 Slack スレッド画像の取り込み（files:read → url_private 取得 → attachments_store）— 9.1
-- [ ] 9.4 訂正確定時に past_cases.attachment_uri へ紐づけ、`search_past_cases` の返却に含める — 9.2
-- [ ] 9.5 `infer()` で top-1 ヒットに写真がある場合のみ画像 Part を追加（Vertex マルチモーダル）— 9.3
-- [ ]* 9.6 添付経路のテスト（非画像/超過サイズ拒否・添付なし訂正の完結・top-1 のみ還流）— 9.3, 9.4, 9.5
+- [x] 9.1 `attachments_store` を実装（GCS 非公開 = frames と同バケット / ローカル ATTACH_DIR 両輪・`/attachment/{event_id}` プロキシ・image/jpeg|png|webp かつ 10MB 検証・パストラバーサル防止）— 9.2, 9.5, 9.6
+- [x] 9.2 モバイル訂正ページに写真添付（`POST /correct/attachment` multipart・`capture="environment"` でカメラ直起動・スキップ可・状態表示）— 9.1, 9.4
+- [x] 9.3 Slack スレッド画像の取り込み（url_private を bot token で取得・検証通過のみ保存・受領をスレッドに返信・text 空なら合成メッセージ）— 9.1
+- [x] 9.4 訂正確定時に pending 写真を past_cases.attachment_uri へ紐づけ（`_persist_correction`）。DB INSERT/SELECT・JSONL とも attachment_uri を往復 — 9.2
+- [x] 9.5 `infer()` に `_photo_evidence`: top-1 ヒットに写真がある場合のみ「確定原因＋現場写真」を画像 Part で添付（失敗はテキストのみで継続）— 9.3
+- [x] 9.6 添付経路のテスト（型/サイズ拒否・ローカル往復・アップロード→プロキシ・コミット時リンク・写真なし完結・Slack画像→pending保存）— 9.3, 9.4, 9.5 ✅TDD 7テスト、計58緑 ※マルチモーダル実呼び出しは 11.3 で確認
 
 ## 10. 分析ビュー
 

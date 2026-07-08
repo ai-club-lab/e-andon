@@ -26,6 +26,7 @@ for _key, _name in (("FEEDBACK_STORE", "feedback.jsonl"),
                     ("NOTIF_STORE", "notifications.jsonl"),
                     ("ESC_STORE", "escalations.jsonl")):
     os.environ[_key] = os.path.join(_TMP, _name)
+os.environ.setdefault("ATTACH_DIR", os.path.join(_TMP, "attachments"))
 _SECRET = "test-signing-secret"
 os.environ["SLACK_SIGNING_SECRET"] = _SECRET
 
@@ -214,6 +215,30 @@ def test_unrelated_thread_replies_are_ignored(client, monkeypatch) -> None:
     aio.run(server._slack_on_message({
         "type": "message", "user": "U777", "text": "not in a thread"}))
     assert not called
+
+
+def test_thread_photo_is_stored_for_the_correction(client, monkeypatch) -> None:
+    """Req 9.1/9.3: an image in the thread reply becomes the pending photo."""
+    import asyncio as aio
+    import attachments_store
+    _seed_event()
+    _seed_notification()
+    sink = _FakeSink()
+    monkeypatch.setattr(server.state, "sink", sink)
+    monkeypatch.setattr(server, "_download_slack_file",
+                        lambda url: b"\xff\xd8\xff\xe0fakejpg")
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        assert "写真" in message  # empty text + file -> synthesized message
+        return {"reply": "どの部品の写真ですか？", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    aio.run(server._slack_on_message({
+        "type": "message", "thread_ts": "111.222", "user": "U777", "text": "",
+        "files": [{"url_private": "https://files.slack/x.jpg",
+                   "mimetype": "image/jpeg", "size": 1234}]}))
+    uri = attachments_store.uri_for("evt-sl-1")
+    assert uri and attachments_store.get_bytes(uri) == b"\xff\xd8\xff\xe0fakejpg"
+    assert any("写真を受け取りました" in t for _, t in
+               [(None, x) for x in sink.threads]) or any("写真" in t for t in sink.threads)
 
 
 def test_inbound_disabled_without_secret(client, monkeypatch) -> None:

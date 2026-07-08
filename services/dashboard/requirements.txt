@@ -8,3 +8,4 @@ sqlalchemy[asyncio]==2.0.36
 -e ../../packages/shared
 psycopg[binary]==3.2.3
 slack_sdk==3.33.5               # notification sink + inbound signature verify (human-loop)
+python-multipart==0.0.20        # field-photo upload (/correct/attachment)

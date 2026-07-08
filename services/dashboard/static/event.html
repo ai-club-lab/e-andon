@@ -56,6 +56,14 @@
     <input type="text" id="msg" placeholder="現場で見た原因を入力…">
     <button class="send" id="b-send">送信</button>
   </div>
+  <div class="row" style="margin-top:8px;align-items:center">
+    <label style="flex:1;color:var(--muted);font-size:13px">
+      📷 原因箇所の写真（任意・1枚）
+      <input type="file" id="photo" accept="image/*" capture="environment"
+             style="display:block;margin-top:4px;color:var(--muted);font-size:12px">
+    </label>
+    <span id="photo-st" style="font-size:12px;color:var(--muted)"></span>
+  </div>
 </div>
 <script>
 const eid = location.pathname.split('/').pop();
@@ -123,6 +131,15 @@ $('#b-ng').onclick = () => { $('#chat').style.display = 'block'; $('#b-ng').disa
 $('#b-send').onclick = () => { const v = $('#msg').value.trim();
                                if(v){ $('#msg').value=''; turn(v); } };
 $('#msg').addEventListener('keydown', e => { if(e.key === 'Enter') $('#b-send').click(); });
+$('#photo').addEventListener('change', async e => {
+  const f = e.target.files[0]; if(!f) return;
+  $('#photo-st').textContent = '送信中…';
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/correct/attachment?event_id=' + encodeURIComponent(eid),
+                        {method:'POST', body: fd});
+  const d = await r.json();
+  $('#photo-st').textContent = d.ok ? '✅ 添付済み（訂正確定時に事例へ保存）' : '⚠ ' + (d.error||'失敗');
+});
 load();
 </script>
 </body>

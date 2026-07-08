@@ -121,6 +121,9 @@ class FeedbackCase(BaseModel):
     summary: str
     correct_cause: str
     source_event_id: str
+    # optional field photo taken at correction time — multimodal few-shot
+    # evidence for the next inference (human-loop Req 9)
+    attachment_uri: str | None = None
 
 
 # --- human loop: notification / routing / escalation (andon-human-loop) ---
