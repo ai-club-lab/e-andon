@@ -1,0 +1,18 @@
+{
+  "feature_name": "andon-human-loop",
+  "created_at": "2026-07-08T03:30:00Z",
+  "updated_at": "2026-07-08T04:30:00Z",
+  "language": "ja",
+  "phase": "tasks-generated",
+  "project_description": "e-Andon の「人間側ループ」実装: (1) Slack通知連携 — 停止イベント+RCA結果(真因・確信度・根拠)をSlackカードで通知し、カード上のボタンでHITL裁定(正しい/違う)、「違う」の場合はスレッド返信で訂正エージェントと対話し pgvector に還流。裁定者のSlackユーザーIDを監査ログに記録(アカウント連携の代替)。(2) 真因→担当者ルーティング+エスカレーション — RCAの真因カテゴリ×当番表の決定論テーブルで一次通知先を決定(LLMはカテゴリ推定まで)、N分無応答で班長→設備ベンダー窓口へ2段エスカレーション、全履歴を監査ログへ。(3) 分析ビュー — サイドメニューの「準備中」ボタンを置換: チョコ停パレート図(真因カテゴリ別停止回数×累計損失分)、再発検知(同一真因の頻発をエージェントが能動指摘)、AI正答率の推移グラフ(/metricsの可視化)。(4) 裁定・訂正画面のモバイル最適化 — Slackから開く前提のスマホ縦画面・大ボタン(手袋・立ち作業対応)。(5) 訂正時の現場写真添付(オプション) — 現場が原因箇所を1枚撮影して訂正に添付、past_casesに保存しGeminiマルチモーダルで次回推論の根拠に。既存の決定論ガードレール哲学(重い判断はLLMの外・監査ログ付き)とステートフル・シングルトン構成を維持する。",
+  "approvals": {
+    "requirements": { "generated": true, "approved": true },
+    "design": { "generated": true, "approved": true },
+    "tasks": { "generated": true, "approved": false }
+  },
+  "references": {
+    "parent_spec": ".kiro/specs/chokotei-anomaly-rca/",
+    "audit_guardrails": "docs/audit.md",
+    "observability": "docs/observability.md"
+  }
+}

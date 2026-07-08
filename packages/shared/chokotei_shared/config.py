@@ -70,5 +70,39 @@ class GcpConfig:
     frames_bucket: str = os.environ.get("FRAMES_BUCKET", "")
 
 
+@dataclass(frozen=True)
+class SlackConfig:
+    """Slack sink/inbound wiring (human-loop Req 1/10).
+
+    All values come from Secret Manager via env on Cloud Run; when unset the
+    sink is a no-op and inbound routes reject, so local dev/CI run Slack-free
+    (human-loop Req 10.6).
+    """
+
+    bot_token: str = os.environ.get("SLACK_BOT_TOKEN", "")
+    signing_secret: str = os.environ.get("SLACK_SIGNING_SECRET", "")
+    channel_id: str = os.environ.get("SLACK_CHANNEL_ID", "")
+
+    @property
+    def send_enabled(self) -> bool:
+        return bool(self.bot_token and self.channel_id)
+
+    @property
+    def inbound_enabled(self) -> bool:
+        return bool(self.signing_secret)
+
+
+@dataclass(frozen=True)
+class EscalationConfig:
+    """Escalation timing (human-loop Req 6). Deterministic timer × verdict state."""
+
+    tier2_delay_s: int = _i("ESC_TIER2_DELAY_S", 300)
+    tier3_delay_s: int = _i("ESC_TIER3_DELAY_S", 900)
+    tick_s: float = _f("ESC_TICK_S", 10.0)
+    correction_timeout_s: int = _i("CORRECTION_TIMEOUT_S", 1800)  # Req 3.5
+
+
 DETECTION = DetectionConfig()
 GCP = GcpConfig()
+SLACK = SlackConfig()
+ESCALATION = EscalationConfig()

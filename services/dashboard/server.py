@@ -24,6 +24,7 @@ import event_store
 import feedback_store
 import frames_store
 import iot_store
+import migrations
 import past_cases as pc
 from fastapi.responses import Response
 from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db, obs
@@ -423,6 +424,7 @@ async def _restore_state() -> None:
     if not db.enabled():
         return
     try:
+        await asyncio.to_thread(migrations.ensure_human_loop_schema)
         recs = await asyncio.to_thread(event_store.list_events, 50)
         for rec in recs:
             state.events.setdefault(rec["event"]["event_id"], rec)

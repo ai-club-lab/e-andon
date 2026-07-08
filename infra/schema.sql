@@ -53,3 +53,54 @@ CREATE TABLE IF NOT EXISTS past_cases (
 -- The service also runs this at startup (past_cases.ensure_schema) and
 -- backfills NULL embeddings, so existing databases need no manual migration.
 ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS embedding vector(768);
+
+-- ---------------------------------------------------------------------------
+-- andon-human-loop (design.md §5): notification idempotency, deterministic
+-- routing, escalation timers, verdict attribution, photo attachments.
+-- The service also applies these at startup (dashboard migrations.ensure_
+-- human_loop_schema), so existing databases need no manual migration.
+
+CREATE TABLE IF NOT EXISTS notifications (
+    event_id   TEXT PRIMARY KEY REFERENCES anomaly_events (event_id),
+    channel_id TEXT NOT NULL,
+    message_ts TEXT NOT NULL,
+    posted_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS routing_rules (
+    category        TEXT PRIMARY KEY,  -- positioning/conveyance/sensor/other
+    primary_mention TEXT NOT NULL,
+    tier2_mention   TEXT NOT NULL,
+    tier2_delay_s   INT  NOT NULL DEFAULT 300,
+    tier3_contact   TEXT NOT NULL,
+    tier3_delay_s   INT  NOT NULL DEFAULT 900,
+    version         INT  NOT NULL DEFAULT 1,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS escalations (
+    id             BIGSERIAL PRIMARY KEY,
+    event_id       TEXT NOT NULL REFERENCES anomaly_events (event_id),
+    tier           INT  NOT NULL,
+    fire_at        TIMESTAMPTZ NOT NULL,
+    target_mention TEXT,
+    contact_note   TEXT,
+    state          TEXT NOT NULL DEFAULT 'pending',  -- pending|fired|cancelled
+    fired_at       TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_escalations_pending ON escalations (state, fire_at);
+
+ALTER TABLE rca_results ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other';
+ALTER TABLE feedback    ADD COLUMN IF NOT EXISTS actor_surface TEXT;
+ALTER TABLE feedback    ADD COLUMN IF NOT EXISTS actor_id TEXT;
+ALTER TABLE feedback    ADD COLUMN IF NOT EXISTS actor_name TEXT;
+ALTER TABLE past_cases  ADD COLUMN IF NOT EXISTS attachment_uri TEXT;
+
+-- Demo duty roster (human-loop Req 5.4/5.5): mentions are placeholders the
+-- owner replaces with real Slack IDs via UPDATE (no redeploy needed).
+INSERT INTO routing_rules (category, primary_mention, tier2_mention, tier3_contact) VALUES
+    ('positioning', '（保全担当・位置決め）', '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
+    ('conveyance',  '（保全担当・搬送）',     '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
+    ('sensor',      '（計装担当）',           '（班長）', 'センサーベンダー窓口 0120-111-111（デモ値）'),
+    ('other',       '（班長）',               '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）')
+ON CONFLICT (category) DO NOTHING;
