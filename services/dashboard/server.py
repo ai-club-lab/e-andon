@@ -20,11 +20,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
+import escalation
 import event_store
 import feedback_store
 import frames_store
 import iot_store
 import migrations
+import notif_store
 import routing
 import sinks
 import past_cases as pc
@@ -62,6 +64,15 @@ class _State:
         self.sink_error: str | None = None         # loud sink failures (Req 1.4)
         self.sink = sinks.default_sink(
             on_error=lambda msg: setattr(self, "sink_error", msg))
+        self.engine = escalation.EscalationEngine(
+            sink=self.sink, verdict_of=feedback_store.get_verdict,
+            on_notice=self._escalation_notice)
+
+    def _escalation_notice(self, event_id: str, text: str) -> None:
+        """Tier-3 contact info also surfaces on the dashboard (Req 6.3)."""
+        rec = self.events.get(event_id)
+        if rec is not None:
+            rec.setdefault("escalation_notes", []).append(text)
 
 
 state = _State()
@@ -127,7 +138,9 @@ async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
     decision = await asyncio.to_thread(routing.resolve, ev.event_id, rca.category)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
-    await state.sink.post_card(ev, rca, decision, deep_link)
+    rec = await state.sink.post_card(ev, rca, decision, deep_link)
+    if rec is not None:  # timers only when the card actually went out (Req 6.1)
+        await state.engine.schedule(decision)
 
 
 async def _store_frame(event_id: str, jpg: bytes) -> None:
@@ -367,7 +380,24 @@ def _record_verdict(event_id: str, verdict: str, actor: Actor,
             "actor_surface": actor.surface, "actor_id": actor.user_id,
             "actor_name": actor.display_name,
         })
+    _after_verdict(event_id, verdict, actor)
     return {"ok": True, "metrics": feedback_store.metrics()}
+
+
+def _after_verdict(event_id: str, verdict: str, actor: Actor) -> None:
+    """Verdict side effects: stop escalations (Req 6.4) and reflect the result
+    on the Slack card (Req 2.5). Best-effort — the verdict record is already
+    durable; sink errors surface through the sink's own on_error path."""
+    async def _side() -> None:
+        await state.engine.cancel(event_id)
+        state.engine.close_correction(event_id)
+        rec = await asyncio.to_thread(notif_store.get, event_id)
+        if rec is not None:
+            await state.sink.update_card(rec, verdict, actor)
+    try:
+        asyncio.get_running_loop().create_task(_side())
+    except RuntimeError:  # sync caller (tests) — run to completion inline
+        asyncio.run(_side())
 
 
 @app.post("/feedback")
@@ -428,8 +458,10 @@ async def correct(req: Request) -> dict:
     if result["recorded"]:
         out["metrics"] = feedback_store.metrics()
         out["cause"] = result.get("cause")
+        state.engine.close_correction(event_id)
     else:
         out["suggestions"] = _cause_suggestions(ev["kind"])  # contextual reply chips
+        state.engine.touch_correction(event_id)              # timeout watch (Req 3.5)
     return out
 
 
@@ -453,6 +485,13 @@ async def _wire_correction() -> None:
     dashboard's shared reflux path (past_cases + audit + cache invalidation)."""
     set_correction_recorder(
         lambda ev_ctx, cause, note: _persist_correction(ev_ctx["event_id"], cause, note))
+
+
+@app.on_event("startup")
+async def _start_escalation_loop() -> None:
+    """Singleton background tick — store-backed scans mean a restart restores
+    pending timers by construction (Req 10.2)."""
+    asyncio.create_task(state.engine.run())
 
 
 @app.on_event("startup")
