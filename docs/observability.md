@@ -49,9 +49,27 @@ Cloud Monitoring に自動送信される（[サービス詳細 → 指標タブ
 「AIが何を根拠に判断したか」を後から追える：
 
 - `anomaly_events` — 何がいつ起きたか（決定論CVの検知結果）
-- `rca_results.evidence` — エージェントが参照した数値・ログ
-- `feedback` — 人間の裁定（correct / wrong + 訂正真因）
-- `past_cases` — 訂正が次回推論に還流した記録（埋め込み付き）
+- `rca_results.evidence` / `.category` — エージェントが参照した数値・ログ、真因分類（ルーティング鍵）
+- `feedback` — 人間の裁定（correct / wrong + 訂正真因 + **操作者: surface / actor_id / actor_name**）
+- `past_cases` — 訂正が次回推論に還流した記録（埋め込み・現場写真 `attachment_uri` 付き）
+- `notifications` — どのイベントをいつどのチャネルに通知したか（冪等キー）
+- `escalations` — エスカレーションの予定・発火・取消（段・宛先・時刻）
+
+### 人間側ループの構造化ログ（severity / event_id でフィルタ可能）
+
+| message | 意味 |
+|---|---|
+| `routing decision` | 通知先決定の全材料（カテゴリ・rule_version・エスカレーション計画） |
+| `escalation scheduled / fired / cancelled` | タイマーのライフサイクル（fired は WARNING） |
+| `slack verdict` | Slack ボタン裁定（already フラグで再送検知） |
+| `slack signature verification failed` | 署名検証の失敗（WARNING） |
+| `field photo attached` | 現場写真の受領（バイト数付き） |
+| `Slack post failed` ほか | 通知シンク障害（ERROR。ダッシュボードにもバナー表示） |
+
+### 分析ビュー（`/analytics`）
+
+集計そのものも観測面として提供: 真因カテゴリ別パレート（回数×損失分）・再発アラート
+（7日×同一カテゴリ≥3、決定論判定）・AI 正答率の日次推移（`/metrics` の時系列化）。
 
 ## 既知の限界（正直に）
 

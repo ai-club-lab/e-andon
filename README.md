@@ -86,10 +86,12 @@ flowchart TB
         DET[detector<br>決定論CV + 二段確認] --> DASH[dashboard<br>FastAPI + SSE + HITL]
         AGENT[agent<br>ADK 2.3.0 オーケストレータ] --> DASH
     end
-    DASH -->|SSE / chat| USER((オペレーター))
+    DASH -->|SSE / chat / analytics| USER((オペレーター))
+    DASH <-->|カード通知・裁定ボタン・スレッド訂正<br>署名検証 / 決定論ルーティング / 無応答エスカレーション| SLACK[Slack<br>保全担当・班長]
+    SLACK -.->|deep link| MOBILE[スマホ裁定 /e/id<br>現場写真→事例へ還流]
     AGENT -->|ADC・鍵不要| VERTEX[Vertex AI — global endpoint<br>Gemini 3 Flash<br>gemini-embedding-001]
-    DASH --> SQL[(Cloud SQL Postgres<br>+ pgvector<br>events / RCA / feedback /<br>past_cases / ADKセッション)]
-    DASH --> GCS[(Cloud Storage<br>代表フレーム・非公開)]
+    DASH --> SQL[(Cloud SQL Postgres<br>+ pgvector<br>events / RCA / feedback+actor /<br>past_cases / notifications /<br>escalations / ADKセッション)]
+    DASH --> GCS[(Cloud Storage<br>代表フレーム・現場写真<br>非公開・プロキシ配信)]
     GH[GitHub Actions] -->|キーレス WIF| CloudRun
 ```
 
@@ -97,6 +99,8 @@ flowchart TB
 services/detector    決定論CV検知（整列/角度/ピッチ）＋ Gemini Vision 二段確認 ＋ 時系列集約
 services/agent       ADK RCAエージェント（FunctionTools・DatabaseSessionService・埋め込み検索）
 services/dashboard   FastAPI＋軽量フロント（稼働1ライン＋デモ表示3ライン・SSE・チャット・HITL・コールドスタート復元）
+                     ＋人間側ループ: Slack通知/裁定/訂正（署名検証）・決定論ルーティング＋エスカレーション・
+                     モバイル裁定 /e/{id}・分析ビュー /analytics（SLACK_* 未設定なら従来どおり動作）
 packages/shared      型付き契約(pydantic)・設定注入・構造化ログ(obs)
 infra                Cloud SQL スキーマ・WIFセットアップ
 .github/workflows    CI（テスト＋Dockerビルド）／CD（キーレスWIFデプロイ）
