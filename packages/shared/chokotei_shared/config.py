@@ -82,6 +82,7 @@ class SlackConfig:
     bot_token: str = os.environ.get("SLACK_BOT_TOKEN", "")
     signing_secret: str = os.environ.get("SLACK_SIGNING_SECRET", "")
     channel_id: str = os.environ.get("SLACK_CHANNEL_ID", "")
+    base_url: str = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")  # deep links (Req 1.3)
 
     @property
     def send_enabled(self) -> bool:

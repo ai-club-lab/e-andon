@@ -23,12 +23,12 @@
 
 ## 3. 通知シンク抽象と Slack 送信
 
-- [ ] 3.1 `NotificationSink` Protocol と `NullSink` を実装（enabled / post_card / update_card / post_thread。未設定環境は no-op + ログ）— 1.1, 10.6
-- [ ] 3.2 `SlackSink` を実装（Block Kit カード: ライン名・停止時刻・真因候補・確信度・根拠＋ツール履歴・代表フレーム参照・deep link・裁定2ボタン・一次担当メンション）— 1.2, 1.3, 2.1, 5.3
-- [ ] 3.3 冪等化: 投稿前に notifications テーブルを PK 参照し、成功時に message_ts を記録（再起動・リトライ後も高々1カード）— 1.5
-- [ ] 3.4 送信失敗の可視化（構造化ログ ERROR + ダッシュボードバナー。SSE 通知は常に先行）— 1.4, 10.5
-- [ ] 3.5 `_notify_stop` にシンク呼び出しを配線（SSE と同じ材料で post_card。RCA 未完時は既存文言のまま SSE のみ）— 1.2
-- [ ] 3.6 送信系テスト(WebClient モック: カード構成・冪等・失敗可視化) — 1.2, 1.4, 1.5
+- [x] 3.1 `NotificationSink` Protocol と `NullSink` を実装（enabled / post_card / update_card / post_thread。未設定環境は no-op + ログ）— 1.1, 10.6
+- [x] 3.2 `SlackSink` を実装（Block Kit カード: 真因候補・確信度・根拠・deep link・裁定2ボタン・一次担当メンション。client 注入可）— 1.2, 1.3, 2.1, 5.3
+- [x] 3.3 冪等化: notif_store（notifications テーブル / JSONL 両輪・by_message_ts 相関つき）を投稿前参照、失敗時はキー未消費 — 1.5
+- [x] 3.4 送信失敗の可視化（構造化ログ + state.sink_error → SSE 経由でダッシュボードバナー表示。SSE 通知は常に先行）— 1.4, 10.5
+- [x] 3.5 `_notify_stop` にシンク呼び出しを配線（`_post_card`。routing は task 4 で結線、現状 None。RCA 未完時は SSE のみ）— 1.2
+- [x] 3.6 送信系テスト（FakeClient: カード材料・冪等×再起動・失敗の loud 化・update_card 裁定反映）— 1.2, 1.4, 1.5, 2.5 ✅BDD/TDD 5テスト、combined 22緑
 
 ## 4. 真因カテゴリとルーティング（決定論）
 

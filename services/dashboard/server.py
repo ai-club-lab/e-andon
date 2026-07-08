@@ -25,9 +25,19 @@ import feedback_store
 import frames_store
 import iot_store
 import migrations
+import sinks
 import past_cases as pc
 from fastapi.responses import Response
-from chokotei_shared import DETECTION, Actor, AnomalyEvent, FeedbackCase, RcaResult, db, obs
+from chokotei_shared import (
+    DETECTION,
+    SLACK,
+    Actor,
+    AnomalyEvent,
+    FeedbackCase,
+    RcaResult,
+    db,
+    obs,
+)
 from detection import detect_frame
 from rca_agent import answer_query, elicit_correction, infer, set_correction_recorder
 from render import annotate, to_jpeg
@@ -48,6 +58,9 @@ class _State:
         self.feedback: list[dict] = []
         self.rca_cache: dict[str, dict] = {}       # signature -> rca dict
         self.infer_lock = asyncio.Lock()           # serialize Vertex calls (avoid 429)
+        self.sink_error: str | None = None         # loud sink failures (Req 1.4)
+        self.sink = sinks.default_sink(
+            on_error=lambda msg: setattr(self, "sink_error", msg))
 
 
 state = _State()
@@ -103,6 +116,16 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
     else:
         text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
     await notifs.put({"event_id": ev.event_id, "text": text})
+    # Push the same material to the notification sink (Slack card, Req 1.2).
+    # SSE always goes first; the card needs the RCA (fires only when present).
+    if rca_d and state.sink.enabled():
+        asyncio.create_task(_post_card(ev, rca_d))
+
+
+async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
+    rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
+    deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
+    await state.sink.post_card(ev, rca, None, deep_link)  # routing wired in task 4
 
 
 async def _store_frame(event_id: str, jpg: bytes) -> None:
@@ -168,7 +191,7 @@ async def _frames():
                         "frame_index": -1, "ts": round(iot_store.STOP_TS, 3),
                         "n_parts": last_n or 0, "line_status": "stopped",
                         "flags": [], "notifications": held, "image": last_jpg,
-                        "metrics": last_metrics})}
+                        "metrics": last_metrics, "sink_error": state.sink_error})}
                     await asyncio.sleep(1.0)
                 break
             fi += 1
@@ -214,7 +237,7 @@ async def _frames():
                 "n_parts": len(fr.parts), "line_status": line_status,
                 "flags": [f.model_dump() for f in fr.flags],
                 "notifications": notes, "image": img_b64,
-                "metrics": last_metrics,
+                "metrics": last_metrics, "sink_error": state.sink_error,
             })}
             await asyncio.sleep(period)
     finally:
