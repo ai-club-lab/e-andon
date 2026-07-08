@@ -27,7 +27,7 @@ import iot_store
 import migrations
 import past_cases as pc
 from fastapi.responses import Response
-from chokotei_shared import DETECTION, AnomalyEvent, FeedbackCase, RcaResult, db, obs
+from chokotei_shared import DETECTION, Actor, AnomalyEvent, FeedbackCase, RcaResult, db, obs
 from detection import detect_frame
 from rca_agent import answer_query, elicit_correction, infer, set_correction_recorder
 from render import annotate, to_jpeg
@@ -280,7 +280,11 @@ async def chat(req: Request) -> dict:
     return {"reply": reply}
 
 
-def _persist_correction(event_id: str, cause: str, evidence_note: str = "") -> dict:
+_DEFAULT_ACTOR = Actor(surface="dashboard", user_id="line-op")
+
+
+def _persist_correction(event_id: str, cause: str, evidence_note: str = "",
+                        actor: Actor | None = None) -> dict:
     """Reflux a human correction into the asset store — the shared write behind
     both the /feedback 'wrong' path and the conversational /correct agent.
 
@@ -291,6 +295,7 @@ def _persist_correction(event_id: str, cause: str, evidence_note: str = "") -> d
     rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
     if not rec:
         return {"recorded": False, "reason": "unknown event"}
+    actor = actor or _DEFAULT_ACTOR
     ev = rec["event"]
     ai = rec.get("rca") or {}
     cause = cause.strip()[:MAX_CAUSE_LEN]
@@ -299,12 +304,45 @@ def _persist_correction(event_id: str, cause: str, evidence_note: str = "") -> d
         "event_id": event_id, "verdict": "wrong",
         "ai_cause": ai.get("cause_candidates", []), "human_cause": cause,
         "kind": ev["kind"], "peak": ev["peak_magnitude"],
+        "actor_surface": actor.surface, "actor_id": actor.user_id,
+        "actor_name": actor.display_name,
     })
     detail = f"（現場の補足: {note}）" if note else ""
     summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {cause}{detail}"
     pc.add(FeedbackCase(summary=summary, correct_cause=cause, source_event_id=event_id))
     state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"recorded": True, "metrics": feedback_store.metrics()}
+
+
+def _record_verdict(event_id: str, verdict: str, actor: Actor,
+                    human_cause: str = "") -> dict:
+    """The single verdict write path — dashboard, Slack, and the mobile page all
+    land here (human-loop Req 2.2). Re-adjudication is not recorded; the prior
+    verdict (who / when / what) is returned instead (Req 2.4)."""
+    rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
+    if not rec or verdict not in ("correct", "wrong"):
+        return {"ok": False, "error": "invalid event_id or verdict"}
+    prior = feedback_store.get_verdict(event_id)
+    if prior:
+        return {"ok": True, "already_adjudicated": True,
+                "prior": {"verdict": prior.get("verdict"),
+                          "actor_id": prior.get("actor_id"),
+                          "actor_name": prior.get("actor_name"),
+                          "at": prior.get("ts")}}
+    if verdict == "wrong":
+        if not human_cause:
+            return {"ok": False, "error": "human_cause required when wrong"}
+        _persist_correction(event_id, human_cause, actor=actor)
+    else:
+        ai = rec.get("rca") or {}
+        feedback_store.save({
+            "event_id": event_id, "verdict": "correct",
+            "ai_cause": ai.get("cause_candidates", []), "human_cause": None,
+            "kind": rec["event"]["kind"], "peak": rec["event"]["peak_magnitude"],
+            "actor_surface": actor.surface, "actor_id": actor.user_id,
+            "actor_name": actor.display_name,
+        })
+    return {"ok": True, "metrics": feedback_store.metrics()}
 
 
 @app.post("/feedback")
@@ -317,25 +355,11 @@ async def feedback(req: Request) -> dict:
     if not _rate_ok(req):
         return {"ok": False, "error": "rate limited"}
     body = await req.json() or {}
-    event_id = body.get("event_id", "")
-    verdict = body.get("verdict")
-    human_cause = (body.get("human_cause") or "").strip()[:MAX_CAUSE_LEN]
-    rec = event_store.get_event(event_id) if db.enabled() else state.events.get(event_id)
-    if not rec or verdict not in ("correct", "wrong"):
-        return {"ok": False, "error": "invalid event_id or verdict"}
-    if verdict == "wrong" and not human_cause:
-        return {"ok": False, "error": "human_cause required when wrong"}
-
-    if verdict == "wrong":
-        _persist_correction(event_id, human_cause)
-    else:
-        ai = rec.get("rca") or {}
-        feedback_store.save({
-            "event_id": event_id, "verdict": "correct",
-            "ai_cause": ai.get("cause_candidates", []), "human_cause": None,
-            "kind": rec["event"]["kind"], "peak": rec["event"]["peak_magnitude"],
-        })
-    return {"ok": True, "metrics": feedback_store.metrics()}
+    user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    return _record_verdict(
+        body.get("event_id", ""), body.get("verdict"),
+        Actor(surface="dashboard", user_id=user_id),
+        (body.get("human_cause") or "").strip()[:MAX_CAUSE_LEN])
 
 
 # Plausible answers the operator might give, by anomaly kind — shown as reply

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from chokotei_shared import db
@@ -16,13 +17,15 @@ STORE = Path(os.environ.get("FEEDBACK_STORE", "data/feedback/feedback.jsonl"))
 
 
 def save(record: dict) -> None:
-    """Append one feedback record (Req 8.3)."""
+    """Append one feedback record with actor attribution (Req 8.3, human-loop Req 4)."""
+    record.setdefault("ts", time.time())
     if db.enabled():
         db.execute(
-            "INSERT INTO feedback (event_id, verdict, ai_cause, human_cause, kind, peak) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
+            "INSERT INTO feedback (event_id, verdict, ai_cause, human_cause, kind, peak, "
+            "actor_surface, actor_id, actor_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (record["event_id"], record["verdict"], json.dumps(record.get("ai_cause")),
-             record.get("human_cause"), record.get("kind"), record.get("peak")),
+             record.get("human_cause"), record.get("kind"), record.get("peak"),
+             record.get("actor_surface"), record.get("actor_id"), record.get("actor_name")),
         )
         return
     STORE.parent.mkdir(parents=True, exist_ok=True)
@@ -32,11 +35,20 @@ def save(record: dict) -> None:
 
 def load() -> list[dict]:
     if db.enabled():
-        return db.fetch("SELECT event_id, verdict, human_cause, kind, peak FROM feedback")
+        return db.fetch(
+            "SELECT event_id, verdict, human_cause, kind, peak, actor_surface, actor_id, "
+            "actor_name, EXTRACT(EPOCH FROM created_at) AS ts FROM feedback ORDER BY id")
     if not STORE.exists():
         return []
     with STORE.open() as fh:
         return [json.loads(line) for line in fh if line.strip()]
+
+
+def get_verdict(event_id: str) -> dict | None:
+    """Latest verdict for an event, or None — the double-adjudication guard
+    (human-loop Req 2.4). Returns verdict + actor + timestamp for display."""
+    rows = [r for r in load() if r.get("event_id") == event_id]
+    return rows[-1] if rows else None
 
 
 def metrics() -> dict:

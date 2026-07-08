@@ -175,6 +175,51 @@ def test_should_reflux_via_record_correction_tool(client, monkeypatch) -> None:
     assert "offset:16" not in server.state.rca_cache, "recurrence must re-infer"
 
 
+# --- single verdict path with actor attribution (andon-human-loop Req 2, 4) ---
+
+def test_should_record_actor_when_dashboard_verdict_lands(client) -> None:
+    """EARS 4.2: dashboard verdicts carry surface='dashboard' into the audit store."""
+    import feedback_store
+    _seed_event()
+    r = client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct",
+                                       "user_id": "op-7"}).json()
+    assert r["ok"] is True
+    rows = feedback_store.load()
+    assert rows[-1]["actor_surface"] == "dashboard"
+    assert rows[-1]["actor_id"] == "op-7"
+
+
+def test_should_not_double_record_when_event_already_adjudicated(client) -> None:
+    """EARS 2.4: a second verdict is not recorded; who/when/what is returned."""
+    client_ip_reset = None  # noqa: F841 — readability only
+    _seed_event()
+    first = client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct",
+                                           "user_id": "op-7"}).json()
+    assert first["ok"] is True and first["metrics"]["total"] == 1
+    second = client.post("/feedback", json={
+        "event_id": "evt-ui-1", "verdict": "wrong", "human_cause": "ボルト緩み"}).json()
+    assert second["already_adjudicated"] is True
+    assert second["prior"]["verdict"] == "correct"
+    assert second["prior"]["actor_id"] == "op-7"
+    assert second["prior"]["at"]
+    import feedback_store
+    assert len(feedback_store.load()) == 1, "no duplicate record"
+
+
+def test_should_share_one_write_path_across_surfaces(client) -> None:
+    """EARS 2.2: a Slack-surface verdict lands in the same store, same shape."""
+    import feedback_store
+    from chokotei_shared import Actor
+    _seed_event()
+    out = server._record_verdict("evt-ui-1", "correct",
+                                 Actor(surface="slack", user_id="U123",
+                                       display_name="Suzuki"))
+    assert out["ok"] is True
+    row = feedback_store.load()[-1]
+    assert (row["actor_surface"], row["actor_id"], row["actor_name"]) == \
+        ("slack", "U123", "Suzuki")
+
+
 def test_should_refuse_record_correction_without_active_session(client) -> None:
     import tools
     assert tools.record_correction("何か")["recorded"] is False        # no active event bound

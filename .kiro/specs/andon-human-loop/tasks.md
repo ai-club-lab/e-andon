@@ -16,10 +16,10 @@
 
 ## 2. 裁定の単一パス化（全入口の合流点）
 
-- [ ] 2.1 `/feedback` の本体を `_record_verdict(event_id, verdict, actor, human_cause)` に抽出し、既存 dashboard 経路を actor(surface="dashboard") 付きで通す — 2.2, 4.2
-- [ ] 2.2 裁定済みイベントへの再操作を検出し、二重記録せず既裁定情報（裁定者・時刻・結果）を返す — 2.4
-- [ ] 2.3 feedback 保存に actor_surface / actor_id / actor_name を記録（監査ストア一体化）— 4.1, 4.2, 4.4
-- [ ] 2.4 単一パスのテスト（dashboard 経由の裁定が actor 付きで1レコード、二重裁定は記録されない）— 2.2, 2.4, 4.1
+- [x] 2.1 `/feedback` の本体を `_record_verdict(event_id, verdict, actor, human_cause)` に抽出し、既存 dashboard 経路を actor(surface="dashboard") 付きで通す — 2.2, 4.2
+- [x] 2.2 裁定済みイベントへの再操作を検出し、二重記録せず既裁定情報（裁定者・時刻・結果）を返す（`feedback_store.get_verdict`）— 2.4
+- [x] 2.3 feedback 保存に actor_surface / actor_id / actor_name を記録（DB INSERT/SELECT 拡張・JSONL は全キー保存・ts 付与）— 4.1, 4.2, 4.4
+- [x] 2.4 単一パスのテスト（dashboard 裁定の actor 記録・二重裁定の prior 返却・slack 面の同一ストア書込）— 2.2, 2.4, 4.1 ✅ATDD 3テスト、全17緑
 
 ## 3. 通知シンク抽象と Slack 送信
 
