@@ -26,8 +26,10 @@ CATEGORY_LABELS = {
 }
 
 
-def _in_window(epoch: float | None, days: int, now: float) -> bool:
-    return epoch is None or (now - epoch) <= days * _DAY
+def _in_window(epoch: object, days: int, now: float) -> bool:
+    # float() — DB epochs may arrive as decimal.Decimal despite ::float8 casts
+    # upstream; never let a numeric type crash the analytics surface
+    return epoch is None or (now - float(epoch)) <= days * _DAY  # type: ignore[arg-type]
 
 
 def _loss_minutes(ev: dict) -> float:
@@ -101,7 +103,7 @@ def accuracy(feedback: list[dict], days: int, now: float | None = None) -> dict:
         ts = row.get("ts")
         if not _in_window(ts, days, now):
             continue
-        day = time.strftime("%Y-%m-%d", time.gmtime(ts if ts is not None else now))
+        day = time.strftime("%Y-%m-%d", time.gmtime(float(ts) if ts is not None else now))
         by_day[day].append(row.get("verdict") or "")
     if not by_day:
         return {"points": [], "empty": True, "days": days}

@@ -35,7 +35,7 @@ def get(event_id: str) -> NotificationRecord | None:
     if db.enabled():
         rows = db.fetch(
             "SELECT event_id, channel_id, message_ts, "
-            "EXTRACT(EPOCH FROM posted_at) AS posted_at "
+            "EXTRACT(EPOCH FROM posted_at)::float8 AS posted_at "
             "FROM notifications WHERE event_id = %s", (event_id,))
         return NotificationRecord(**rows[0]) if rows else None
     store = _store()
@@ -54,7 +54,7 @@ def by_message_ts(message_ts: str) -> NotificationRecord | None:
     if db.enabled():
         rows = db.fetch(
             "SELECT event_id, channel_id, message_ts, "
-            "EXTRACT(EPOCH FROM posted_at) AS posted_at "
+            "EXTRACT(EPOCH FROM posted_at)::float8 AS posted_at "
             "FROM notifications WHERE message_ts = %s", (message_ts,))
         return NotificationRecord(**rows[0]) if rows else None
     store = _store()

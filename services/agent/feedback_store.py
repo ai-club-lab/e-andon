@@ -41,7 +41,9 @@ def load() -> list[dict]:
     if db.enabled():
         return db.fetch(
             "SELECT event_id, verdict, human_cause, kind, peak, actor_surface, actor_id, "
-            "actor_name, EXTRACT(EPOCH FROM created_at) AS ts FROM feedback ORDER BY id")
+            # ::float8 — EXTRACT returns numeric (Decimal in psycopg), which
+            # breaks float arithmetic in analytics windows
+            "actor_name, EXTRACT(EPOCH FROM created_at)::float8 AS ts FROM feedback ORDER BY id")
     store = _store()
     if not store.exists():
         return []

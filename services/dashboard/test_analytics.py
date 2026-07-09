@@ -68,6 +68,18 @@ def test_recurrence_alerts_at_threshold():
     assert out2["alerts"] == []
 
 
+def test_accuracy_survives_decimal_epochs_from_postgres():
+    """Prod regression: EXTRACT(EPOCH) arrives as decimal.Decimal via psycopg."""
+    from decimal import Decimal
+    fb = [{"event_id": "a", "verdict": "correct", "human_cause": None,
+           "ts": Decimal(str(NOW - DAY))}]
+    out = analytics.accuracy(fb, days=30, now=NOW)
+    assert out["points"][0]["correct_rate"] == 1.0
+    events = [_ev("x", "positioning")]
+    events[0]["event"]["created_at"] = Decimal(str(NOW - DAY))
+    assert analytics.pareto(events, days=7, now=NOW)["total"] == 1
+
+
 def test_accuracy_trend_buckets_by_day():
     fb = [_fb("a", "correct", age_days=2.2), _fb("b", "wrong", age_days=2.5),
           _fb("c", "correct", age_days=0.5)]
