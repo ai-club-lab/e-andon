@@ -83,6 +83,9 @@ class SlackConfig:
     signing_secret: str = os.environ.get("SLACK_SIGNING_SECRET", "")
     channel_id: str = os.environ.get("SLACK_CHANNEL_ID", "")
     base_url: str = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")  # deep links (Req 1.3)
+    # alert-fatigue suppression: with per-playthrough unique event ids, the same
+    # anomaly signature posts at most one card per window (deterministic)
+    notif_throttle_s: float = float(os.environ.get("NOTIF_THROTTLE_S", 600.0))
 
     @property
     def send_enabled(self) -> bool:

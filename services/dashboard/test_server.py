@@ -235,6 +235,47 @@ def test_correct_dialogue_refuses_after_adjudication(client, monkeypatch) -> Non
     assert not called
 
 
+def test_notification_throttled_per_signature(client, monkeypatch) -> None:
+    """Unique event IDs must not spam Slack: same anomaly signature posts at
+    most once per window (deterministic alert-fatigue suppression)."""
+    import asyncio as aio
+    posted = []
+
+    class CountingSink:
+        def enabled(self) -> bool:
+            return True
+
+        async def post_card(self, ev, rca, routing, deep_link):
+            posted.append(ev.event_id)
+            from chokotei_shared import NotificationRecord
+            return NotificationRecord(event_id=ev.event_id, channel_id="C1",
+                                      message_ts=f"{len(posted)}.0", posted_at=1.0)
+
+    monkeypatch.setattr(server.state, "sink", CountingSink())
+    scheduled = []
+    async def fake_schedule(decision):
+        scheduled.append(decision.event_id)
+    monkeypatch.setattr(server.state.engine, "schedule", fake_schedule)
+
+    def rca_d(eid):
+        return {"event_id": eid, "cause_candidates": ["c"], "confidence": 0.8,
+                "evidence": [], "category": "positioning"}
+
+    def ev(eid):
+        from chokotei_shared import AnomalyEvent
+        return AnomalyEvent(event_id=eid, started_ts=5.8, kind="offset",
+                            peak_magnitude=16.0, rep_frame_uri="", status="open")
+
+    server.state.notif_sig_ts.clear()
+    aio.run(server._post_card(ev("evt-1-a"), rca_d("evt-1-a")))
+    aio.run(server._post_card(ev("evt-1-b"), rca_d("evt-1-b")))  # same signature
+    assert posted == ["evt-1-a"], "second playthrough within the window is suppressed"
+    assert scheduled == ["evt-1-a"], "no escalation timers for suppressed cards"
+    server.state.notif_sig_ts["offset:16"] -= 10_000  # window elapsed
+    aio.run(server._post_card(ev("evt-1-c"), rca_d("evt-1-c")))
+    assert posted == ["evt-1-a", "evt-1-c"]
+
+
 # --- mobile adjudication page (andon-human-loop task 8, Req 8) ---
 
 def test_event_page_serves_mobile_first_html(client) -> None:

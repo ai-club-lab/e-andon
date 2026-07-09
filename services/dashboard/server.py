@@ -65,6 +65,7 @@ class _State:
         self.rca_cache: dict[str, dict] = {}       # signature -> rca dict
         self.infer_lock = asyncio.Lock()           # serialize Vertex calls (avoid 429)
         self.sink_error: str | None = None         # loud sink failures (Req 1.4)
+        self.notif_sig_ts: dict[str, float] = {}   # signature -> last card time (throttle)
         self.sink = sinks.default_sink(
             on_error=lambda msg: setattr(self, "sink_error", msg))
         self.engine = escalation.EscalationEngine(
@@ -138,11 +139,21 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
 
 
 async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
+    # alert-fatigue suppression: event ids are unique per playthrough, so the
+    # throttle keys on the anomaly signature — one card per signature per
+    # window, no Slack spam from every viewer of the public demo (deterministic)
+    sig, now = _sig(ev), time.time()
+    last = state.notif_sig_ts.get(sig)
+    if last is not None and now - last < SLACK.notif_throttle_s:
+        logger.info("notification throttled",
+                    extra={"ctx": {"event_id": ev.event_id, "signature": sig}})
+        return
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
     decision = await asyncio.to_thread(routing.resolve, ev.event_id, rca.category)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
     rec = await state.sink.post_card(ev, rca, decision, deep_link)
     if rec is not None:  # timers only when the card actually went out (Req 6.1)
+        state.notif_sig_ts[sig] = now
         await state.engine.schedule(decision)
 
 

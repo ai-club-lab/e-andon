@@ -56,3 +56,20 @@ def test_single_anomaly_event_no_false_positives() -> None:
 
 if __name__ == "__main__":
     test_single_anomaly_event_no_false_positives()
+
+
+def test_event_ids_are_unique_across_playthroughs() -> None:
+    """andon-human-loop Req 2.4 demo semantics: each playthrough (per-connection
+    tracker) is a NEW physical stop — verdicts must not collide across viewers."""
+    from chokotei_shared import FlagDetail, FrameResult
+
+    def one_event(tracker: EventTracker) -> str:
+        fr = FrameResult(frame_index=140, ts=5.83, baseline_y=300.0, median_gap=120.0,
+                         median_angle=0.0, parts=[],
+                         flags=[FlagDetail(kind="offset", cx=100.0, cy=316.0,
+                                           magnitude=16.0, reason="offset 16px")])
+        return tracker.update(fr)[0].event_id
+
+    a, b = one_event(EventTracker()), one_event(EventTracker())
+    assert a != b, "same recording, different playthrough -> different event id"
+    assert a.startswith("evt-0140-1-"), f"stable prefix kept for readability: {a}"

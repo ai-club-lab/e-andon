@@ -7,6 +7,7 @@ first confirmation and closing after a run of clean frames.
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from chokotei_shared import AnomalyEvent, DETECTION, DetectionConfig, FlagDetail, FrameResult
@@ -34,6 +35,10 @@ class EventTracker:
     _tracks: list[_Track] = field(default_factory=list)
     closed: list[AnomalyEvent] = field(default_factory=list)
     _seq: int = 0
+    # per-tracker run token: each playthrough (one tracker per SSE connection)
+    # is a NEW physical stop, so its events must not collide with a previous
+    # viewer's verdicts (andon-human-loop Req 2.4 demo semantics)
+    _run: str = field(default_factory=lambda: uuid.uuid4().hex[:6])
 
     def update(self, fr: FrameResult) -> list[AnomalyEvent]:
         newly_open: list[AnomalyEvent] = []
@@ -62,7 +67,7 @@ class EventTracker:
         for f in unmatched:
             self._seq += 1
             ev = AnomalyEvent(
-                event_id=f"evt-{fr.frame_index:04d}-{self._seq}",
+                event_id=f"evt-{fr.frame_index:04d}-{self._seq}-{self._run}",
                 started_ts=fr.ts, kind=f.kind, peak_magnitude=f.magnitude,
                 rep_frame_uri="", status="open",
             )
