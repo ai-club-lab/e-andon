@@ -87,7 +87,7 @@
 
 - [x] 11.1 Slack アプリ「e-Andon」作成（App ID A0BH2LW9P7S / ws=ai-fx / scopes: chat:write, files:read, users:read + channels:join 追加・ai-fx へインストール済・Interactivity URL 設定済）＋ #e-andon-alerts (C0BG54TR4LV) 作成 ＋ Secret Manager (slack-bot-token / slack-signing-secret) 登録 ＋ deploy.yml 配線 ＋ SlackSink 自動 join。※Events URL 検証はデプロイ後（11.3 冒頭）— 10.3
 - [x] 11.2 CI に新テストを組込み（shared 契約＋dashboard ディレクトリ一括: sinks/routing/escalation/slack_routes/analytics。全て Slack・GCP なしで成立）— 10.6
-- [ ] 11.3 本番 E2E 検証（実 Slack チャネルで: 停止→カード＋メンション→ボタン裁定→カード更新→スレッド訂正→past_cases 還流→再発時の推論変化、エスカレーション発火はデモ用短縮タイマーで確認）— 1.2, 2.1, 3.3, 6.2
+- [~] 11.3 本番 E2E 検証 — **確認済み**: 停止→#e-andon-alerts へカード投稿（真因・確信度90%・根拠・班長メンション・3ボタン）／bot 自動 join／Events URL Verified／ボタン→署名検証→ `_record_verdict`（既裁定ガード発動を確認・"slack verdict" 監査ログ・200）／routing decision → escalation scheduled → 既裁定で cancelled。**未確認**: フレッシュイベントでの裁定→カード更新・スレッド訂正→還流・写真・エスカレーション実発火 — 本番の evt-0140-1 が過去の feedback 行で既裁定のためブロック（デモIDリセット判断待ち）— 1.2, 2.1, 3.3, 6.2
 - [x] 11.4 ドキュメント更新（README アーキ図+サービス説明に Slack/モバイル/分析 面を追加・docs/audit.md に人間側ループのガードレール5項+脅威モデル2項・docs/observability.md に新テーブル/ログ表/分析ビュー）— 5.6, 6.5, 10.5
 - [ ]* 11.5 min/max-instances=1 のままタイマー系が動作することの復元テスト（リビジョン入替→escalations 復元）— 10.2
 
