@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir \
     "psycopg[binary]==3.2.3" \
     "fastapi==0.139.0" sse-starlette==2.1.3 "uvicorn[standard]==0.34.0" jinja2==3.1.5 \
     google-cloud-storage==2.19.0 \
+    slack_sdk==3.33.5 python-multipart==0.0.20 \
     opencv-python-headless==5.0.0.93 numpy==2.5.0
 
 COPY services/detector services/detector
