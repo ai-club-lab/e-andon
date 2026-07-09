@@ -28,30 +28,39 @@ def save_rca(r: RcaResult) -> None:
     if not db.enabled():
         return
     db.execute(
-        "INSERT INTO rca_results (event_id, cause_candidates, confidence, evidence) "
-        "VALUES (%s,%s,%s,%s) ON CONFLICT (event_id) DO UPDATE SET "
+        "INSERT INTO rca_results (event_id, cause_candidates, confidence, evidence, category) "
+        "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (event_id) DO UPDATE SET "
         "cause_candidates = EXCLUDED.cause_candidates, confidence = EXCLUDED.confidence, "
-        "evidence = EXCLUDED.evidence",
-        (r.event_id, json.dumps(r.cause_candidates), r.confidence, json.dumps(r.evidence)),
+        "evidence = EXCLUDED.evidence, category = EXCLUDED.category",
+        (r.event_id, json.dumps(r.cause_candidates), r.confidence, json.dumps(r.evidence),
+         r.category),
     )
+
+
+_COLS = ("e.event_id, e.kind, e.peak_magnitude, e.started_ts, e.ended_ts, "
+         "EXTRACT(EPOCH FROM e.created_at)::float8 AS created_at, "
+         "r.cause_candidates, r.confidence, r.evidence, r.category")
 
 
 def _shape(row: dict) -> dict:
     rca = None
     if row.get("cause_candidates") is not None:
         rca = {"cause_candidates": row["cause_candidates"],
-               "confidence": row["confidence"], "evidence": row["evidence"]}
+               "confidence": row["confidence"], "evidence": row["evidence"],
+               "category": row.get("category") or "other"}
     return {"event": {"event_id": row["event_id"], "kind": row["kind"],
                       "peak_magnitude": row["peak_magnitude"],
-                      "started_ts": row.get("started_ts", 0.0)}, "rca": rca}
+                      "started_ts": row.get("started_ts", 0.0),
+                      "ended_ts": row.get("ended_ts"),          # analytics loss minutes
+                      "created_at": row.get("created_at")},     # analytics windows
+            "rca": rca}
 
 
 def get_event(event_id: str) -> dict | None:
     if not db.enabled():
         return None
     rows = db.fetch(
-        "SELECT e.event_id, e.kind, e.peak_magnitude, e.started_ts, "
-        "r.cause_candidates, r.confidence, r.evidence "
+        f"SELECT {_COLS} "
         "FROM anomaly_events e LEFT JOIN rca_results r ON r.event_id = e.event_id "
         "WHERE e.event_id = %s", (event_id,))
     return _shape(rows[0]) if rows else None
@@ -61,8 +70,7 @@ def list_events(limit: int = 12) -> list[dict]:
     if not db.enabled():
         return []
     rows = db.fetch(
-        "SELECT e.event_id, e.kind, e.peak_magnitude, e.started_ts, "
-        "r.cause_candidates, r.confidence, r.evidence "
+        f"SELECT {_COLS} "
         "FROM anomaly_events e LEFT JOIN rca_results r ON r.event_id = e.event_id "
         "ORDER BY e.created_at DESC LIMIT %s", (limit,))
     return [_shape(r) for r in rows]
