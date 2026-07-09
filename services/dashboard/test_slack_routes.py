@@ -85,6 +85,15 @@ def test_rejects_invalid_signature_with_401(client) -> None:
     assert r.status_code == 401
 
 
+def test_rejects_missing_signature_headers_with_401(client) -> None:
+    """Fail closed on absent headers (not a 500) — probes hit this constantly."""
+    r = client.post("/slack/interactivity", content="payload={}", headers=CT_FORM)
+    assert r.status_code == 401
+    r2 = client.post("/slack/events", content="{}",
+                     headers={"content-type": "application/json"})
+    assert r2.status_code == 401
+
+
 def test_rejects_stale_timestamp(client) -> None:
     """Req 10.4: 5-minute window — replayed requests are refused."""
     body = _interactivity_body("verdict_correct", "evt-sl-1")

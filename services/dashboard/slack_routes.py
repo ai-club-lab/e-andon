@@ -45,10 +45,13 @@ def _guard(request: Request, body: bytes) -> Response | None:
     secret = os.environ.get("SLACK_SIGNING_SECRET", "")
     if not secret:
         return Response(status_code=503, content="slack inbound disabled")
-    ok = SignatureVerifier(secret).is_valid(
-        body=body,
-        timestamp=request.headers.get("x-slack-request-timestamp", ""),
-        signature=request.headers.get("x-slack-signature", ""))
+    try:
+        ok = SignatureVerifier(secret).is_valid(
+            body=body,
+            timestamp=request.headers.get("x-slack-request-timestamp", ""),
+            signature=request.headers.get("x-slack-signature", ""))
+    except Exception:  # e.g. missing/garbage timestamp header — fail closed
+        ok = False
     if not ok:  # covers bad secret AND stale timestamps (5-minute window)
         logger.warning("slack signature verification failed",
                        extra={"ctx": {"path": str(request.url.path)}})
