@@ -99,9 +99,9 @@ class SlackSink:
             return existing
         summary = f"⚠ ライン停止: {'、'.join(rca.cause_candidates[:1])}（{ev.kind}）"
         try:
-            resp = await asyncio.to_thread(
-                self._client.chat_postMessage, channel=self._channel,
-                text=summary, blocks=_card_blocks(ev, rca, routing, deep_link))
+            resp = await self._post_joining(
+                channel=self._channel, text=summary,
+                blocks=_card_blocks(ev, rca, routing, deep_link))
         except Exception as e:  # Req 1.4 — loud, never silent
             logger.exception("Slack post failed", extra={"ctx": {"event_id": ev.event_id}})
             self._on_error(f"Slack通知の送信に失敗しました（{type(e).__name__}）")
@@ -110,6 +110,19 @@ class SlackSink:
                                  message_ts=resp["ts"], posted_at=time.time())
         await asyncio.to_thread(notif_store.save, rec)
         return rec
+
+    async def _post_joining(self, **kwargs):
+        """chat.postMessage; on not_in_channel, conversations.join once and retry
+        (channels:join scope — no manual /invite needed for public channels)."""
+        from slack_sdk.errors import SlackApiError
+        try:
+            return await asyncio.to_thread(self._client.chat_postMessage, **kwargs)
+        except SlackApiError as e:
+            if (e.response or {}).get("error") != "not_in_channel":
+                raise
+            await asyncio.to_thread(self._client.conversations_join,
+                                    channel=kwargs["channel"])
+            return await asyncio.to_thread(self._client.chat_postMessage, **kwargs)
 
     async def update_card(self, rec: NotificationRecord, verdict: str,
                           actor: Actor) -> None:

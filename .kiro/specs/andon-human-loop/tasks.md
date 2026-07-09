@@ -85,7 +85,7 @@
 
 ## 11. デプロイ配線と統合検証
 
-- [ ] 11.1 Slack アプリ作成（scopes: chat:write / files:read / users:read、Event 購読 message.channels、Interactivity URL 設定）＋ Secret Manager に bot_token / signing_secret 登録 → deploy.yml で env 注入 — 10.3
+- [x] 11.1 Slack アプリ「e-Andon」作成（App ID A0BH2LW9P7S / ws=ai-fx / scopes: chat:write, files:read, users:read + channels:join 追加・ai-fx へインストール済・Interactivity URL 設定済）＋ #e-andon-alerts (C0BG54TR4LV) 作成 ＋ Secret Manager (slack-bot-token / slack-signing-secret) 登録 ＋ deploy.yml 配線 ＋ SlackSink 自動 join。※Events URL 検証はデプロイ後（11.3 冒頭）— 10.3
 - [x] 11.2 CI に新テストを組込み（shared 契約＋dashboard ディレクトリ一括: sinks/routing/escalation/slack_routes/analytics。全て Slack・GCP なしで成立）— 10.6
 - [ ] 11.3 本番 E2E 検証（実 Slack チャネルで: 停止→カード＋メンション→ボタン裁定→カード更新→スレッド訂正→past_cases 還流→再発時の推論変化、エスカレーション発火はデモ用短縮タイマーで確認）— 1.2, 2.1, 3.3, 6.2
 - [x] 11.4 ドキュメント更新（README アーキ図+サービス説明に Slack/モバイル/分析 面を追加・docs/audit.md に人間側ループのガードレール5項+脅威モデル2項・docs/observability.md に新テーブル/ログ表/分析ビュー）— 5.6, 6.5, 10.5

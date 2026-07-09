@@ -116,6 +116,31 @@ def test_post_card_failure_is_loud_not_silent(clean_store) -> None:
     assert notif_store.get("evt-s1") is None, "failed post must not claim the idempotency key"
 
 
+def test_post_card_joins_channel_on_first_post(clean_store) -> None:
+    """channels:join: not_in_channel -> conversations_join -> retry once."""
+    from slack_sdk.errors import SlackApiError
+
+    class JoinClient(FakeClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.joined: list[str] = []
+
+        def chat_postMessage(self, **kw):
+            if not self.joined and "thread_ts" not in kw:
+                raise SlackApiError("not_in_channel", {"error": "not_in_channel"})
+            return super().chat_postMessage(**kw)
+
+        def conversations_join(self, channel: str):
+            self.joined.append(channel)
+            return {"ok": True}
+
+    fake = JoinClient()
+    s = sinks.SlackSink(client=fake, channel_id="C1")
+    rec = asyncio.run(s.post_card(_event(), _rca(), _routing(), ""))
+    assert fake.joined == ["C1"]
+    assert rec is not None and len(fake.posts) == 1
+
+
 def test_update_card_reflects_verdict_and_actor(clean_store) -> None:
     """Req 2.5: the card is updated with verdict, actor, and time."""
     fake = FakeClient()

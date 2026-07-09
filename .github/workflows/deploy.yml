@@ -44,8 +44,8 @@ jobs:
             --allow-unauthenticated \
             --min-instances=1 --max-instances=1 --memory=1Gi --cpu=1 --timeout=300 \
             --add-cloudsql-instances "${{ vars.CLOUDSQL_CONN }}" \
-            --set-secrets DB_PASSWORD=chokotei-db-password:latest \
-            --set-env-vars "INSTANCE_CONNECTION_NAME=${{ vars.CLOUDSQL_CONN }},DB_NAME=chokotei,DB_USER=postgres,FRAMES_BUCKET=fhack26-aiclub-frames,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT }},GOOGLE_CLOUD_LOCATION=global,MODEL_REGION=global"
+            --set-secrets DB_PASSWORD=chokotei-db-password:latest,SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest \
+            --set-env-vars "INSTANCE_CONNECTION_NAME=${{ vars.CLOUDSQL_CONN }},DB_NAME=chokotei,DB_USER=postgres,FRAMES_BUCKET=fhack26-aiclub-frames,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT }},GOOGLE_CLOUD_LOCATION=global,MODEL_REGION=global,SLACK_CHANNEL_ID=C0BG54TR4LV,PUBLIC_BASE_URL=https://chokotei-dashboard-523085315022.asia-northeast1.run.app"
 
       - name: Show URL
         run: gcloud run services describe chokotei-dashboard --project "${{ vars.GCP_PROJECT }}" --region asia-northeast1 --format="value(status.url)"
