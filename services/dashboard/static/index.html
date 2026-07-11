@@ -117,7 +117,11 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .thumb{width:100%;aspect-ratio:1014/634;object-fit:cover;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
 .sim{font-size:12px;color:var(--ink);background:#fdf6e7;border:1px solid #f0dcb0;border-radius:8px;padding:7px 9px;margin-top:6px;line-height:1.6}
 .sim a{color:var(--brand)}
-.ackrow{margin-top:8px}
+.ackrow{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ackrow .ackwho{flex:1 0 100%;font-size:11.5px;color:var(--muted)}
+.ackrow .ackchip{width:auto;flex:0 0 auto;border-style:solid;padding:6px 12px;border-radius:14px}
+.ackrow .ackname{flex:1 1 120px;border:1px solid var(--line);border-radius:9px;padding:6px 9px;
+  font-size:12.5px;background:var(--card);color:var(--ink)}
 .ackrow button{width:100%;border:1px dashed var(--line);background:var(--bg);border-radius:9px;
   padding:7px;font-size:12.5px;color:var(--muted);cursor:pointer}
 .ackrow button:hover{border-color:var(--brand);color:var(--brand)}
@@ -506,8 +510,46 @@ async function addAlert(n){
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
     '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div>'+
     '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">👋 私が対応します</button></div></div>';
+  if(n.routing){ div.dataset.p1=n.routing.primary||''; div.dataset.p2=n.routing.tier2||''; }
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
+  startPoll(id);
+}
+// ---- 面間同期: Slack/モバイルでの ack・裁定・自動連絡の経過をこのカードにも反映 ----
+const pollTimers={};
+function startPoll(id){
+  if(pollTimers[id]) return;
+  let ticks=0;
+  pollTimers[id]=setInterval(async()=>{
+    if(document.hidden) return;
+    if(++ticks>450){ stopPoll(id); return; }        // ~30分で打ち切り
+    try{
+      const d=await (await fetch('/api/event/'+id)).json();
+      applyState(id,d);
+      if(d.verdict) stopPoll(id);                    // 裁定で解決 — 追従終了
+    }catch(e){}
+  },4000);
+}
+function stopPoll(id){ clearInterval(pollTimers[id]); delete pollTimers[id]; }
+function applyState(id,d){
+  const card=document.getElementById('ac-'+id); if(!card) return;
+  const row=card.querySelector('.ackrow');
+  if(d.ack && row && !row.querySelector('.acked'))
+    renderAckBadge(row, d.ack.actor_name||'現場の担当者', false);
+  if(d.verdict && !card.querySelector('.vdone')){
+    card.querySelectorAll('.fb button').forEach(b=>b.classList.add('done'));
+    const v=document.createElement('div'); v.className='evi vdone';
+    const w=d.verdict.actor_name||'';
+    v.textContent=(d.verdict.verdict==='correct'?'✓ 「正しい」と裁定されました':'✗ 「原因が違う」と裁定されました')
+      +(w?'（'+w+'）':'');
+    card.querySelector('.ab').appendChild(v);
+  }
+  if(d.escalation_notes && d.escalation_notes.length){
+    let esc=card.querySelector('.escl');
+    if(!esc){ esc=document.createElement('div'); esc.className='evi escl';
+      card.querySelector('.ab').appendChild(esc); }
+    esc.textContent=d.escalation_notes.at(-1);
+  }
 }
 async function refreshMetrics(){
   try{ const m=await (await fetch('/metrics')).json();
@@ -532,19 +574,49 @@ function renderChips(list){ const box=$('#chips'); if(!box) return; box.innerHTM
   for(const t of (list&&list.length?list:DEFAULT_CHIPS)){
     const s=document.createElement('span'); s.className='chip'; s.textContent=t; s.onclick=()=>ask(s); box.appendChild(s); } }
 
-async function ackEvt(btn,id){
-  const r=await postJSON('/ack',{event_id:id,user_id:UID});
-  if(r.already_adjudicated){ addMsg('bot','このイベントは裁定済みです。'); return; }
-  btn.classList.add('acked');
-  btn.textContent = r.already_acked
-    ? '👋 '+(((r.ack&&(r.ack.actor_name||r.ack.actor_id))||'別の担当者'))+' さんが対応します'
-    : '👋 あなたが対応します — 以降の自動連絡は止めました';
+// 「誰が対応するか」を名前で確定する — 当番チップ1タップ or 自由入力。
+// 名前は端末に記憶（次回1タップ）。未入力でも確定できる（初動の速さが正義）。
+const cleanName=s=>String(s||'').replace(/（[^）]*）/g,'').replace(/さん$/,'').trim();
+function ackEvt(btn,id){
+  const row=btn.closest('.ackrow'), card=btn.closest('.alert-card');
+  row.innerHTML='';
+  const lbl=document.createElement('div'); lbl.className='ackwho';
+  lbl.textContent='どなたが対応しますか？（タップで全画面・Slackに共有されます）';
+  row.appendChild(lbl);
+  const names=[...new Set([localStorage.getItem('eandon-name'),
+    cleanName(card.dataset.p1), cleanName(card.dataset.p2)].filter(Boolean))];
+  for(const nm of names){ const b=document.createElement('button'); b.className='ackchip';
+    b.textContent='👋 '+nm; b.onclick=()=>doAck(row,id,nm); row.appendChild(b); }
+  const other=document.createElement('button'); other.className='ackchip';
+  other.textContent='✏️ 名前を入力';
+  other.onclick=()=>{
+    const inp=document.createElement('input'); inp.className='ackname';
+    inp.placeholder='お名前（例: 佐藤）'; inp.maxLength=24;
+    const go=document.createElement('button'); go.className='ackchip'; go.textContent='確定';
+    go.onclick=()=>doAck(row,id,inp.value.trim());
+    inp.onkeydown=e=>{ if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229) go.onclick(); };
+    other.replaceWith(inp,go); inp.focus(); };
+  row.appendChild(other);
+}
+async function doAck(row,id,name){
+  if(name) localStorage.setItem('eandon-name',name);
+  const r=await postJSON('/ack',{event_id:id,user_id:UID,display_name:name||''});
+  if(r.already_adjudicated){ row.innerHTML=''; addMsg('bot','このイベントは裁定済みです。'); return; }
+  if(!r.ok){ addMsg('bot','記録に失敗: '+(r.error||'')); return; }
+  const who=(r.already_acked&&r.ack&&(r.ack.actor_name))||name||'現場の担当者';
+  renderAckBadge(row,who,!r.already_acked);
+  if(r.already_acked) addMsg('bot','先に '+who+' さんが対応中です。');
+}
+function renderAckBadge(row,who,mine){
+  row.innerHTML='<button class="acked" disabled>👋 '+escH(who)+' さんが対応中'
+    +(mine?' — 以降の自動連絡は止めました':'')+'</button>';
 }
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);
   markFbDone(btn);
-  const r=await postJSON('/feedback',{event_id:id,verdict:'correct',user_id:UID});
-  if(r.already_adjudicated){ const w=r.prior&&(r.prior.actor_name||r.prior.actor_id);
+  const r=await postJSON('/feedback',{event_id:id,verdict:'correct',user_id:UID,
+    display_name:localStorage.getItem('eandon-name')||''});
+  if(r.already_adjudicated){ const w=r.prior&&r.prior.actor_name;
     addMsg('bot','このイベントは裁定済みです'+(w?'（'+w+'）':'')+'。'); }
   else addMsg('bot', r.ok?'ご確認ありがとうございます。「正しい」と記録しました。':('記録に失敗: '+r.error));
   refreshMetrics();

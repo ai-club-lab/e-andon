@@ -109,8 +109,9 @@ services/detector    決定論CV検知（整列/角度/ピッチ）＋ Gemini Vi
 services/agent       ADK RCAエージェント（FunctionTools・DatabaseSessionService・埋め込み検索）
 services/dashboard   FastAPI＋軽量フロント（稼働1ライン＋デモ表示3ライン・SSE・チャット・HITL・コールドスタート復元）
                      ＋人間側ループ: Slack通知/裁定/訂正（署名検証）・原因カテゴリ→当番表の決定論ルーティング
-                     （「誰に通知したか・無応答なら次に誰か」を名前で明示）・モバイル裁定 /e/{id}・
-                     分析ビュー /analytics（SLACK_* 未設定なら従来どおり動作）
+                     （「誰に通知したか・無応答なら次に誰か」を名前で明示）・「👋 私が対応します」は
+                     当番チップ1タップで実名確定し全面（Web/Slack/モバイル）に数秒で同期・
+                     モバイル裁定 /e/{id}・分析ビュー /analytics（SLACK_* 未設定なら従来どおり動作）
 packages/shared      型付き契約(pydantic)・設定注入・構造化ログ(obs)
 infra                Cloud SQL スキーマ・WIFセットアップ
 .github/workflows    CI（テスト＋Dockerビルド）／CD（キーレスWIFデプロイ）

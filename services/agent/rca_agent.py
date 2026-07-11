@@ -10,6 +10,7 @@ Model-call failures are raised + logged, never silently swallowed (Req 5.6).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -280,7 +281,6 @@ async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
     the proof of autonomy (which tools, in which order), not just the verdict.
     """
     runner = _runner("rca")
-    session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
     prompt = (
         f"異常イベント: id={event.event_id} 種別={event.kind} "
         f"ピーク逸脱={event.peak_magnitude:.1f} 発生時刻={event.started_ts:.2f}s。"
@@ -288,17 +288,38 @@ async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
     )
     parts = [types.Part(text=prompt)]
     parts += _photo_evidence(event)  # top-1 past-case field photo (human-loop Req 9.3)
-    msg = types.Content(role="user", parts=parts)
+
+    async def _attempt() -> tuple[str, list[str]]:
+        # fresh session per attempt — a timed-out run leaves no partial state behind
+        session = await runner.session_service.create_session(app_name=_APP, user_id=user_id)
+        msg = types.Content(role="user", parts=parts)
+        text, calls = "", []
+        async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):
+            calls += [fc.name for fc in (ev.get_function_calls() or []) if fc.name]
+            if ev.is_final_response() and ev.content and ev.content.parts:
+                text = "".join(p.text or "" for p in ev.content.parts)
+        return text, calls
+
     final_text = ""
     tool_calls: list[str] = []
     # bind the event so search_past_cases keys on the measured situation,
     # not on whatever hypothesis text the model writes (server-built key)
     ev_token = bind_active_event(event.model_dump())
     try:
-        async for ev in runner.run_async(user_id=user_id, session_id=session.id, new_message=msg):
-            tool_calls += [fc.name for fc in (ev.get_function_calls() or []) if fc.name]
-            if ev.is_final_response() and ev.content and ev.content.parts:
-                final_text = "".join(p.text or "" for p in ev.content.parts)
+        # a stalled Vertex connection otherwise hangs forever (observed) —
+        # bound each attempt and retry once; the caller's error path handles
+        # a second timeout (story falls back to 推定中, cache stays clean)
+        timeout_s = float(os.environ.get("RCA_TIMEOUT_S", "90"))
+        for attempt in (1, 2):
+            try:
+                final_text, tool_calls = await asyncio.wait_for(_attempt(), timeout_s)
+                break
+            except asyncio.TimeoutError:
+                logger.warning("RCA attempt timed out", extra={"ctx": {
+                    "event_id": event.event_id, "attempt": attempt,
+                    "timeout_s": timeout_s}})
+                if attempt == 2:
+                    raise
     finally:
         reset_active_event(ev_token)
 

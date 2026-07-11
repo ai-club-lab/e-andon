@@ -530,7 +530,8 @@ def _record_ack(event_id: str, actor: Actor) -> dict:
     logger.info("ack recorded", extra={"ctx": {
         "event_id": event_id, "actor_surface": actor.surface,
         "actor_id": actor.user_id}})
-    who = actor.display_name or actor.user_id
+    # 「誰が」を名前で語る — 匿名IDを人前に出さない（当番名 or 現場の担当者）
+    who = actor.display_name or "現場の担当者"
 
     async def _side() -> None:
         await state.engine.cancel(event_id)   # response stops later tiers
@@ -554,8 +555,10 @@ async def ack(req: Request) -> dict:
         return {"ok": False, "error": "rate limited"}
     body = await req.json() or {}
     user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    name = re.sub(r"[\x00-\x1f<>&\"']", "", str(body.get("display_name") or "")).strip()[:24]
     return _record_ack(body.get("event_id", ""),
-                       Actor(surface="dashboard", user_id=user_id))
+                       Actor(surface="dashboard", user_id=user_id,
+                             display_name=name or None))
 
 
 def _after_verdict(event_id: str, verdict: str, actor: Actor) -> None:
@@ -585,9 +588,11 @@ async def feedback(req: Request) -> dict:
         return {"ok": False, "error": "rate limited"}
     body = await req.json() or {}
     user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    # 裁定も「誰が」を名前で残す（ackと同じサニタイズ・同じ語り）
+    name = re.sub(r"[\x00-\x1f<>&\"']", "", str(body.get("display_name") or "")).strip()[:24]
     return _record_verdict(
         body.get("event_id", ""), body.get("verdict"),
-        Actor(surface="dashboard", user_id=user_id),
+        Actor(surface="dashboard", user_id=user_id, display_name=name or None),
         (body.get("human_cause") or "").strip()[:MAX_CAUSE_LEN])
 
 

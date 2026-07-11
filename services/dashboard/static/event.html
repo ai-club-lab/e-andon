@@ -79,7 +79,7 @@ const $ = s => document.querySelector(s);
 let suggestions = [];
 
 function showDone(v){
-  const who = (v && (v.actor_name || v.actor_id)) || '';
+  const who = (v && v.actor_name) || '';
   const tail = who ? `（${who}）` : '';
   $('#done').textContent = v && v.verdict === 'correct'
     ? `裁定済み: ✅ 正しい${tail}` : `裁定済み: ❌ 違う — 訂正記録あり${tail}`;
@@ -122,31 +122,62 @@ async function load(){
     route + sim +
     (d.escalation_notes?.length ? `<div class="esc">${d.escalation_notes.at(-1)}</div>` : '') +
     `<img class="frame" src="/frame/${eid}" onerror="this.remove()">`;
+  if(rt) rosterNames = [cleanName(rt.primary), cleanName(rt.tier2)].filter(Boolean);
   if(d.ack) showAck(d.ack);
   if(d.verdict) showDone(d.verdict);
 }
 
+// 面間同期: Web/Slack側の ack・裁定がこのページにも数秒で反映される
+let resolved = false;
+setInterval(async () => {
+  if(document.hidden || resolved) return;
+  try{
+    const d = await (await fetch('/api/event/' + eid)).json();
+    if(d.ack) showAck(d.ack);
+    if(d.verdict){ showDone(d.verdict); resolved = true; }
+  }catch(e){}
+}, 5000);
+
 function showAck(a){
-  const who = (a && (a.actor_name || a.actor_id)) || '';
+  const who = (a && a.actor_name) || '現場の担当者';
+  const pick = document.getElementById('ackpick'); if(pick) pick.remove();
+  $('#b-ack').style.display = '';
   $('#b-ack').disabled = true;
-  $('#b-ack').textContent = `👋 ${who} さんが対応します`;
+  $('#b-ack').textContent = `👋 ${who} さんが対応中`;
 }
 
-$('#b-ack').onclick = async () => {
+// 当番チップ1タップで「誰が」を確定（名前は端末に記憶・未入力でも確定可）
+const cleanName = s => String(s||'').replace(/（[^）]*）/g,'').replace(/さん$/,'').trim();
+const myName = () => localStorage.getItem('eandon-name') || '';
+let rosterNames = [];   // set in render() from d.routing
+$('#b-ack').onclick = () => {
+  if(document.getElementById('ackpick')) return;
+  const box = document.createElement('div'); box.className='chips'; box.id='ackpick';
+  const names=[...new Set([localStorage.getItem('eandon-name'),...rosterNames].filter(Boolean))];
+  for(const nm of names){ const c=document.createElement('span'); c.textContent='👋 '+nm;
+    c.onclick=()=>doAck(nm); box.appendChild(c); }
+  const other=document.createElement('span'); other.textContent='✏️ 名前を入力';
+  other.onclick=()=>{ const nm=prompt('お名前（例: 佐藤）')||''; doAck(nm.trim().slice(0,24)); };
+  box.appendChild(other);
+  $('#b-ack').style.display='none';
+  $('#b-ack').parentNode.insertBefore(box, $('#b-ack'));
+};
+async function doAck(name){
+  if(name) localStorage.setItem('eandon-name', name);
   const r = await fetch('/ack', {method:'POST', headers:{'content-type':'application/json'},
-    body: JSON.stringify({event_id: eid, user_id: uid})});
+    body: JSON.stringify({event_id: eid, user_id: uid, display_name: name||''})});
   const d = await r.json();
   if(d.already_adjudicated){ $('#err').textContent = '既に裁定済みです。'; return; }
-  if(d.ok) showAck(d.already_acked ? d.ack : {actor_id: uid});
+  if(d.ok) showAck(d.already_acked ? d.ack : {actor_name: name});
   else $('#err').textContent = d.error || '記録に失敗しました。';
-};
+}
 
 $('#b-ok').onclick = async () => {
   const r = await fetch('/feedback', {method:'POST', headers:{'content-type':'application/json'},
-    body: JSON.stringify({event_id: eid, verdict: 'correct', user_id: uid})});
+    body: JSON.stringify({event_id: eid, verdict: 'correct', user_id: uid, display_name: myName()})});
   const d = await r.json();
-  if(d.ok) showDone(d.already_adjudicated ? d.prior && {verdict:d.prior.verdict, actor_id:d.prior.actor_id}
-                                          : {verdict:'correct', actor_id: uid});
+  if(d.ok) showDone(d.already_adjudicated ? d.prior && {verdict:d.prior.verdict, actor_name:d.prior.actor_name}
+                                          : {verdict:'correct', actor_name: myName()});
   else $('#err').textContent = d.error || '記録に失敗しました。';
 };
 
@@ -161,7 +192,7 @@ async function turn(message){
   const d = await r.json();
   addMsg('ai', d.reply);
   $('#chips').innerHTML = '';
-  if(d.recorded){ showDone({verdict:'wrong', actor_id: uid}); $('#msg').disabled = true;
+  if(d.recorded){ showDone({verdict:'wrong', actor_name: myName()}); $('#msg').disabled = true;
                   $('#b-send').disabled = true; }
   else for(const s of (d.suggestions || suggestions)){
     const c = document.createElement('span'); c.textContent = s;

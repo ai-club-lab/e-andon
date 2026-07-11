@@ -246,6 +246,37 @@ def test_should_record_ack_and_cancel_escalation(client, monkeypatch) -> None:
     assert r2["already_acked"] is True and r2["ack"]["actor_id"] == "maint-1"
 
 
+def test_should_carry_display_name_through_ack(client, monkeypatch) -> None:
+    """「誰が対応するか」は名前で全面に伝わる — display_name が記録され、
+    匿名IDはSlackスレッド文言に出ない（現場の担当者にフォールバック）。"""
+    _seed_event()
+    async def noop(event_id): pass
+    monkeypatch.setattr(server.state.engine, "cancel", noop)
+    r = client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "op-x8f2",
+                                  "display_name": " 保全・佐藤<>& "}).json()
+    assert r["ok"] is True
+    assert r["ack"]["actor_name"] == "保全・佐藤"    # control chars / markup stripped
+    d = client.get("/api/event/evt-ui-1").json()
+    assert d["ack"]["actor_name"] == "保全・佐藤"          # visible to every surface
+
+
+def test_should_hide_anonymous_id_behind_generic_name(client, monkeypatch) -> None:
+    _seed_event()
+    async def noop(event_id): pass
+    monkeypatch.setattr(server.state.engine, "cancel", noop)
+    posted = []
+    async def fake_thread(nrec, text): posted.append(text)
+    monkeypatch.setattr(server.state.sink, "post_thread", fake_thread)
+    monkeypatch.setattr(server.notif_store, "get", lambda _eid: {"channel": "C1", "ts": "1.0"})
+    r = client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "op-x8f2"}).json()
+    assert r["ok"] is True
+    for _ in range(40):
+        if posted:
+            break
+        time.sleep(0.05)
+    assert posted and "現場の担当者" in posted[0] and "op-x8f2" not in posted[0]
+
+
 def test_should_refuse_ack_when_already_adjudicated(client) -> None:
     _seed_event()
     client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct"})
