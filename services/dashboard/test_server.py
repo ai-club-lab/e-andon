@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +17,9 @@ from fastapi.testclient import TestClient
 _TMP = tempfile.mkdtemp(prefix="eandon-ui-test-")
 for _key, _name in (("FEEDBACK_STORE", "feedback.jsonl"),
                     ("CASES_STORE", "cases.jsonl"),
-                    ("IOT_STORE", "iot.jsonl")):
+                    ("IOT_STORE", "iot.jsonl"),
+                    ("ACK_STORE", "acks.jsonl"),
+                    ("NOTIF_STORE", "notifications.jsonl")):
     os.environ[_key] = os.path.join(_TMP, _name)
 
 import server  # noqa: E402  — stores resolve their paths at import time
@@ -39,8 +42,9 @@ def client():
     server.state.events.clear()
     server.state.rca_cache.clear()
     server._RATE.clear()
-    if os.path.exists(os.environ["FEEDBACK_STORE"]):
-        os.remove(os.environ["FEEDBACK_STORE"])
+    for key in ("FEEDBACK_STORE", "ACK_STORE"):
+        if os.path.exists(os.environ[key]):
+            os.remove(os.environ[key])
     with TestClient(server.app) as c:
         yield c
 
@@ -223,6 +227,58 @@ def test_should_dedupe_confirmed_case_when_same_signature_repeats(client) -> Non
     assert len(confirmed) == 1
 
 
+# --- 対応中 ack: first responder stops the escalation tiers (flow phase 4) ---
+
+def test_should_record_ack_and_cancel_escalation(client, monkeypatch) -> None:
+    _seed_event()
+    cancelled = []
+    async def fake_cancel(event_id): cancelled.append(event_id)
+    monkeypatch.setattr(server.state.engine, "cancel", fake_cancel)
+    r = client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "maint-1"}).json()
+    assert r["ok"] is True and r["ack"]["actor_id"] == "maint-1"
+    for _ in range(40):   # cancellation is fire-and-forget (same as verdicts)
+        if cancelled:
+            break
+        time.sleep(0.05)
+    assert cancelled == ["evt-ui-1"]
+    # first responder wins — the second ack reports who is already on it
+    r2 = client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "maint-2"}).json()
+    assert r2["already_acked"] is True and r2["ack"]["actor_id"] == "maint-1"
+
+
+def test_should_refuse_ack_when_already_adjudicated(client) -> None:
+    _seed_event()
+    client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct"})
+    r = client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "maint-1"}).json()
+    assert r.get("already_adjudicated") is True
+
+
+def test_should_expose_ack_and_similar_case_on_event_api(client, monkeypatch) -> None:
+    """/e/{id} material: who is responding + how the same situation was fixed
+    last time (cause, action, photo) — the human-facing past-case reflux."""
+    from chokotei_shared import FeedbackCase
+    _seed_event()
+    monkeypatch.setattr(server.pc, "search", lambda q, k=3: [
+        FeedbackCase(summary="映像検知 …", correct_cause="ガイドレール固定ボルトの緩み",
+                     source_event_id="evt-old", action_taken="増し締めして再稼働",
+                     attachment_uri="gs://b/attachments/evt-old.jpg")])
+    client.post("/ack", json={"event_id": "evt-ui-1", "user_id": "maint-1"})
+    d = client.get("/api/event/evt-ui-1").json()
+    assert d["ack"]["actor_id"] == "maint-1"
+    sc = d["similar_case"]
+    assert sc["cause"] == "ガイドレール固定ボルトの緩み"
+    assert sc["action_taken"] == "増し締めして再稼働" and sc["photo"] is True
+
+
+def test_should_not_cite_own_case_as_similar(client, monkeypatch) -> None:
+    from chokotei_shared import FeedbackCase
+    _seed_event()
+    monkeypatch.setattr(server.pc, "search", lambda q, k=3: [
+        FeedbackCase(summary="s", correct_cause="x", source_event_id="evt-ui-1")])
+    d = client.get("/api/event/evt-ui-1").json()
+    assert d["similar_case"] is None
+
+
 # --- single verdict path with actor attribution (andon-human-loop Req 2, 4) ---
 
 def test_should_record_actor_when_dashboard_verdict_lands(client) -> None:
@@ -293,7 +349,7 @@ def test_notification_throttled_per_signature(client, monkeypatch) -> None:
         def enabled(self) -> bool:
             return True
 
-        async def post_card(self, ev, rca, routing, deep_link, frame_url=""):
+        async def post_card(self, ev, rca, routing, deep_link, frame_url="", similar=None):
             posted.append(ev.event_id)
             from chokotei_shared import NotificationRecord
             return NotificationRecord(event_id=ev.event_id, channel_id="C1",

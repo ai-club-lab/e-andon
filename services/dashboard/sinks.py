@@ -24,7 +24,8 @@ class NotificationSink(Protocol):
 
     async def post_card(self, ev: AnomalyEvent, rca: RcaResult,
                         routing: RoutingDecision | None,
-                        deep_link: str, frame_url: str = "") -> NotificationRecord | None: ...
+                        deep_link: str, frame_url: str = "",
+                        similar: dict | None = None) -> NotificationRecord | None: ...
 
     async def update_card(self, rec: NotificationRecord, verdict: str,
                           actor: Actor) -> None: ...
@@ -38,7 +39,7 @@ class NullSink:
     def enabled(self) -> bool:
         return False
 
-    async def post_card(self, ev, rca, routing, deep_link, frame_url=""):
+    async def post_card(self, ev, rca, routing, deep_link, frame_url="", similar=None):
         return None
 
     async def update_card(self, rec, verdict, actor):
@@ -50,7 +51,7 @@ class NullSink:
 
 def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
                  routing: RoutingDecision | None, deep_link: str,
-                 frame_url: str = "") -> list[dict]:
+                 frame_url: str = "", similar: dict | None = None) -> list[dict]:
     conf = min(rca.confidence, 0.95)  # same deterministic cap as the dashboard
     cause = "、".join(rca.cause_candidates[:2])
     evidence = "\n".join(f"• {e}" for e in rca.evidence[:3])
@@ -61,6 +62,8 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             f"*真因候補*: {cause}\n*確信度*: {conf:.0%}\n*根拠*:\n{evidence}{mention}")}},
         {"type": "actions", "elements": [
+            {"type": "button", "action_id": "ack",
+             "text": {"type": "plain_text", "text": "🔧 対応中"}, "value": ev.event_id},
             {"type": "button", "action_id": "verdict_correct", "style": "primary",
              "text": {"type": "plain_text", "text": "✅ 正しい"}, "value": ev.event_id},
             {"type": "button", "action_id": "verdict_wrong", "style": "danger",
@@ -74,6 +77,16 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
     if frame_url:  # image-based detection: show the annotated frame in-card
         blocks.insert(2, {"type": "image", "image_url": frame_url,
                           "alt_text": "検知フレーム（赤枠=整列異常）"})
+    if similar:  # 初動短縮: how the SAME situation was fixed last time
+        line = f"📚 *類似の過去停止*: 真因「{similar['cause']}」"
+        if similar.get("action_taken"):
+            line += f" ／ 処置: {similar['action_taken']}"
+        elements: list[dict] = [{"type": "mrkdwn", "text": line}]
+        if similar.get("photo") and deep_link:
+            base = deep_link.split("/e/")[0]
+            elements.insert(0, {"type": "image", "alt_text": "過去事例の現場写真",
+                                "image_url": f"{base}/attachment/{similar['source_event_id']}"})
+        blocks.insert(len(blocks) - 1, {"type": "context", "elements": elements})
     return blocks
 
 
@@ -94,7 +107,8 @@ class SlackSink:
 
     async def post_card(self, ev: AnomalyEvent, rca: RcaResult,
                         routing: RoutingDecision | None,
-                        deep_link: str, frame_url: str = "") -> NotificationRecord | None:
+                        deep_link: str, frame_url: str = "",
+                        similar: dict | None = None) -> NotificationRecord | None:
         if not self.enabled():
             return None
         existing = await asyncio.to_thread(notif_store.get, ev.event_id)
@@ -104,7 +118,7 @@ class SlackSink:
         try:
             resp = await self._post_joining(
                 channel=self._channel, text=summary,
-                blocks=_card_blocks(ev, rca, routing, deep_link, frame_url))
+                blocks=_card_blocks(ev, rca, routing, deep_link, frame_url, similar))
         except Exception as e:  # Req 1.4 — loud, never silent
             logger.exception("Slack post failed", extra={"ctx": {"event_id": ev.event_id}})
             self._on_error(f"Slack通知の送信に失敗しました（{type(e).__name__}）")

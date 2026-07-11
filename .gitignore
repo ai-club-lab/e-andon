@@ -40,6 +40,9 @@ build/
 data/iot/*.jsonl
 data/feedback/*.jsonl
 data/cases/*.jsonl
+data/escalations/*.jsonl
+data/notifications/*.jsonl
+data/acks/*.jsonl
 
 # === Claude Code (local-only overrides) ===
 .claude/settings.local.json

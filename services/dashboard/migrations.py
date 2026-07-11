@@ -42,6 +42,12 @@ _DDL = [
     "ALTER TABLE feedback    ADD COLUMN IF NOT EXISTS actor_id TEXT",
     "ALTER TABLE feedback    ADD COLUMN IF NOT EXISTS actor_name TEXT",
     "ALTER TABLE past_cases  ADD COLUMN IF NOT EXISTS attachment_uri TEXT",
+    """CREATE TABLE IF NOT EXISTS acks (
+        event_id      TEXT PRIMARY KEY REFERENCES anomaly_events (event_id),
+        actor_surface TEXT NOT NULL,
+        actor_id      TEXT NOT NULL,
+        actor_name    TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now())""",
     """INSERT INTO routing_rules (category, primary_mention, tier2_mention, tier3_contact) VALUES
         ('positioning', '（保全担当・位置決め）', '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
         ('conveyance',  '（保全担当・搬送）',     '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),

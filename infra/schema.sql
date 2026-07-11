@@ -59,6 +59,16 @@ ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS verdict TEXT DEFAULT 'corrected'
 ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS evidence_note TEXT;
 ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS action_taken TEXT;
 
+-- 対応中 (ack): first responder per event — stops the escalation tiers
+-- before the verdict paperwork (business-flow phase 4).
+CREATE TABLE IF NOT EXISTS acks (
+    event_id      TEXT PRIMARY KEY REFERENCES anomaly_events (event_id),
+    actor_surface TEXT NOT NULL,
+    actor_id      TEXT NOT NULL,
+    actor_name    TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- andon-human-loop (design.md §5): notification idempotency, deterministic
 -- routing, escalation timers, verdict attribution, photo attachments.

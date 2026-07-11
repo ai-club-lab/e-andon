@@ -24,7 +24,8 @@ for _key, _name in (("FEEDBACK_STORE", "feedback.jsonl"),
                     ("CASES_STORE", "cases.jsonl"),
                     ("IOT_STORE", "iot.jsonl"),
                     ("NOTIF_STORE", "notifications.jsonl"),
-                    ("ESC_STORE", "escalations.jsonl")):
+                    ("ESC_STORE", "escalations.jsonl"),
+                    ("ACK_STORE", "acks.jsonl")):
     os.environ[_key] = os.path.join(_TMP, _name)
 os.environ.setdefault("ATTACH_DIR", os.path.join(_TMP, "attachments"))
 _SECRET = "test-signing-secret"
@@ -67,7 +68,7 @@ def client():
     server.state.events.clear()
     server.state.rca_cache.clear()
     server._RATE.clear()
-    for key in ("FEEDBACK_STORE", "NOTIF_STORE", "ESC_STORE"):
+    for key in ("FEEDBACK_STORE", "NOTIF_STORE", "ESC_STORE", "ACK_STORE"):
         if os.path.exists(os.environ[key]):
             os.remove(os.environ[key])
     with TestClient(server.app) as c:
@@ -257,3 +258,20 @@ def test_inbound_disabled_without_secret(client, monkeypatch) -> None:
     r = client.post("/slack/interactivity", content=body,
                     headers={**_sign(body), **CT_FORM})
     assert r.status_code == 503
+
+
+def test_button_ack_records_responder_and_stops_escalation(client, monkeypatch) -> None:
+    """🔧 対応中 from the Slack card: first responder is recorded with the
+    Slack actor and the escalation tiers are cancelled — before any verdict."""
+    import ack_store
+    _seed_event("evt-sl-ack")
+    cancelled = []
+    async def fake_cancel(event_id): cancelled.append(event_id)
+    monkeypatch.setattr(server.state.engine, "cancel", fake_cancel)
+    body = _interactivity_body("ack", "evt-sl-ack", user_id="U_MAINT", user_name="hoshino")
+    r = client.post("/slack/interactivity", content=body, headers={**_sign(body), **CT_FORM})
+    assert r.status_code == 200
+    row = ack_store.get("evt-sl-ack")
+    assert row and row["actor_id"] == "U_MAINT" and row["actor_surface"] == "slack"
+    assert cancelled == ["evt-sl-ack"]
+

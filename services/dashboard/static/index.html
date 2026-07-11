@@ -115,6 +115,13 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 /* aspect-ratio reserves the box before the async load, so the verdict buttons
    below never get pushed out of the initial view */
 .thumb{width:100%;aspect-ratio:1014/634;object-fit:cover;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
+.sim{font-size:12px;color:var(--ink);background:#fdf6e7;border:1px solid #f0dcb0;border-radius:8px;padding:7px 9px;margin-top:6px;line-height:1.6}
+.sim a{color:var(--brand)}
+.ackrow{margin-top:8px}
+.ackrow button{width:100%;border:1px dashed var(--line);background:var(--bg);border-radius:9px;
+  padding:7px;font-size:12.5px;color:var(--muted);cursor:pointer}
+.ackrow button:hover{border-color:var(--brand);color:var(--brand)}
+.ackrow .acked{border-style:solid;color:var(--warn);border-color:#f3c088;background:#fff6e6;pointer-events:none}
 .fb{display:flex;gap:8px;margin-top:10px}
 .fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
@@ -456,6 +463,14 @@ function addMsg(cls,text){ ensureFeed(); const d=document.createElement('div');
   d.className='msg '+cls; d.textContent=text; feed.appendChild(d); feed.scrollTop=feed.scrollHeight; }
 // LLM self-reported confidence is calibration-free — never show a flat 100%
 function confPct(v){ return Math.round(Math.min(v||0,0.95)*100); }
+const escH=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// 初動短縮: how the same situation was fixed last time (past-case reflux, human-facing)
+function simHtml(sc){
+  if(!sc) return '';
+  return '<div class="sim">📚 類似の過去停止: 真因「'+escH(sc.cause)+'」'+
+    (sc.action_taken?' ／ 処置: '+escH(sc.action_taken):'')+
+    (sc.photo?' ／ <a href="/attachment/'+encodeURIComponent(sc.source_event_id)+'" target="_blank">📷 現場写真</a>':'')+'</div>';
+}
 async function addAlert(n){
   if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
@@ -475,10 +490,12 @@ async function addAlert(n){
     '<div class="conf"><div class="bar"><i style="width:'+confPct(c.confidence)+'%"></i></div>'+
     '<small>確信度 '+confPct(c.confidence)+'%</small></div>'+
     '<div class="evi">参照ログ: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
+    simHtml(n.similar_case)+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()" '+
     'onload="feed.scrollTop=feed.scrollHeight">'+
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
-    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div></div>';
+    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div>'+
+    '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">🔧 対応中にする — 現場に向かう（呼び出しを停止）</button></div></div>';
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
 }
@@ -505,6 +522,13 @@ function renderChips(list){ const box=$('#chips'); if(!box) return; box.innerHTM
   for(const t of (list&&list.length?list:DEFAULT_CHIPS)){
     const s=document.createElement('span'); s.className='chip'; s.textContent=t; s.onclick=()=>ask(s); box.appendChild(s); } }
 
+async function ackEvt(btn,id){
+  const r=await postJSON('/ack',{event_id:id,user_id:UID});
+  if(r.already_adjudicated){ addMsg('bot','このイベントは裁定済みです。'); return; }
+  const who=r.already_acked?((r.ack&&(r.ack.actor_name||r.ack.actor_id))||'別の担当者'):'あなた';
+  btn.classList.add('acked');
+  btn.textContent='🔧 対応中: '+who+(r.already_acked?'':'（エスカレーションを停止しました）');
+}
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);
   markFbDone(btn);

@@ -27,6 +27,7 @@ import event_store
 import feedback_store
 import frames_store
 import iot_store
+import ack_store
 import migrations
 import notif_store
 import routing
@@ -133,14 +134,17 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
                 f"根拠: {'; '.join(rca_d['evidence'][:2])}")
     else:
         text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
-    await notifs.put({"event_id": ev.event_id, "text": text})
+    # 前回の対処を人にも見せる（初動短縮）— the same store the agent reads
+    rec = state.events.get(ev.event_id) or {"event": ev.model_dump()}
+    similar = await asyncio.to_thread(_similar_case, rec)
+    await notifs.put({"event_id": ev.event_id, "text": text, "similar_case": similar})
     # Push the same material to the notification sink (Slack card, Req 1.2).
     # SSE always goes first; the card needs the RCA (fires only when present).
     if rca_d and state.sink.enabled():
-        asyncio.create_task(_post_card(ev, rca_d))
+        asyncio.create_task(_post_card(ev, rca_d, similar))
 
 
-async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
+async def _post_card(ev: AnomalyEvent, rca_d: dict, similar: dict | None = None) -> None:
     # alert-fatigue suppression: event ids are unique per playthrough, so the
     # throttle keys on the anomaly signature — one card per signature per
     # window, no Slack spam from every viewer of the public demo (deterministic)
@@ -161,7 +165,8 @@ async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
     frame_url = ""
     if SLACK.base_url and await asyncio.to_thread(frames_store.exists, ev.event_id):
         frame_url = f"{SLACK.base_url}/frame/{ev.event_id}"
-    rec = await state.sink.post_card(ev, rca, decision, deep_link, frame_url)
+    rec = await state.sink.post_card(ev, rca, decision, deep_link, frame_url,
+                                     similar=similar)
     if rec is not None:  # timers only when the card actually went out (Req 6.1)
         state.notif_sig_ts[sig] = now
         await state.engine.schedule(decision)
@@ -403,6 +408,26 @@ def _situation_key(ev: dict) -> str:
                                     ev.get("started_ts"), ev.get("ended_ts"))
 
 
+def _similar_case(rec: dict) -> dict | None:
+    """Nearest past case, surfaced to the HUMAN (not just the agent): the
+    maintenance staff's first question on arrival is 「前はどう直した？」.
+    Searched with the same situation key the agent uses; the event's own case
+    is excluded so a fresh stop never cites itself. Best-effort — never blocks
+    a notification."""
+    try:
+        ev = rec["event"]
+        for c in pc.search(_situation_key(ev), k=3):
+            if c.source_event_id != ev["event_id"] and c.correct_cause:
+                return {"cause": c.correct_cause,
+                        "action_taken": c.action_taken,
+                        "verdict": c.verdict,
+                        "photo": bool(c.attachment_uri),
+                        "source_event_id": c.source_event_id}
+    except Exception:
+        logger.warning("similar-case lookup failed", exc_info=True)
+    return None
+
+
 def _persist_confirmation(rec: dict) -> None:
     """✅正しい も事例化する — 当たった推論を状況キーごと強化する（外れからしか
     学ばないストアにしない）。同一シグネチャの再裁定（公開デモのリプレイ）は
@@ -455,6 +480,52 @@ def _record_verdict(event_id: str, verdict: str, actor: Actor,
         _persist_confirmation(rec)
     _after_verdict(event_id, verdict, actor)
     return {"ok": True, "metrics": feedback_store.metrics()}
+
+
+def _record_ack(event_id: str, actor: Actor) -> dict:
+    """対応中 — the single ack write path (dashboard / Slack / mobile).
+
+    First responder wins. The ack is the REAL urgency signal of a stop:
+    it cancels the escalation tiers immediately (Req 6.4 semantics), while
+    the verdict/correction can follow after the fix. Audited via logs."""
+    rec = _event_rec(event_id)
+    if not rec:
+        return {"ok": False, "error": "invalid event_id"}
+    if feedback_store.get_verdict(event_id):
+        return {"ok": True, "already_adjudicated": True}
+    prior = ack_store.get(event_id)
+    if prior:
+        return {"ok": True, "already_acked": True, "ack": prior}
+    ack_store.save(event_id, actor)
+    logger.info("ack recorded", extra={"ctx": {
+        "event_id": event_id, "actor_surface": actor.surface,
+        "actor_id": actor.user_id}})
+    who = actor.display_name or actor.user_id
+
+    async def _side() -> None:
+        await state.engine.cancel(event_id)   # response stops later tiers
+        nrec = await asyncio.to_thread(notif_store.get, event_id)
+        if nrec is not None:
+            await state.sink.post_thread(
+                nrec, f"🔧 {who} が対応中です（エスカレーションを停止しました）")
+    try:
+        asyncio.get_running_loop().create_task(_side())
+    except RuntimeError:  # sync caller (tests)
+        asyncio.run(_side())
+    return {"ok": True, "ack": {"actor_id": actor.user_id,
+                                "actor_name": actor.display_name,
+                                "actor_surface": actor.surface}}
+
+
+@app.post("/ack")
+async def ack(req: Request) -> dict:
+    """「対応中」— acknowledge a stop from the dashboard or the mobile page."""
+    if not _rate_ok(req):
+        return {"ok": False, "error": "rate limited"}
+    body = await req.json() or {}
+    user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    return _record_ack(body.get("event_id", ""),
+                       Actor(surface="dashboard", user_id=user_id))
 
 
 def _after_verdict(event_id: str, verdict: str, actor: Actor) -> None:
@@ -744,7 +815,7 @@ async def _slack_on_message(event: dict) -> None:
 
 
 app.include_router(slack_routes.router)
-slack_routes.configure(record_verdict=_record_verdict,
+slack_routes.configure(record_verdict=_record_verdict, record_ack=_record_ack,
                        on_wrong=_slack_on_wrong, on_message=_slack_on_message)
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
@@ -794,6 +865,8 @@ async def api_event(event_id: str) -> dict:
         "event": rec["event"], "rca": rec.get("rca"),
         "verdict": ({"verdict": v.get("verdict"), "actor_id": v.get("actor_id"),
                      "actor_name": v.get("actor_name"), "at": v.get("ts")} if v else None),
+        "ack": await asyncio.to_thread(ack_store.get, event_id),
+        "similar_case": await asyncio.to_thread(_similar_case, rec),
         "escalation_notes": rec.get("escalation_notes", []),
         "suggestions": _cause_suggestions(rec["event"]["kind"]),
     }

@@ -31,13 +31,16 @@ _handlers: dict[str, Callable[..., Any]] = {}
 
 def configure(record_verdict: Callable[[str, str, Actor], dict],
               on_wrong: Callable[[str, Actor], Awaitable[None]] | None = None,
-              on_message: Callable[[dict], Awaitable[None]] | None = None) -> None:
+              on_message: Callable[[dict], Awaitable[None]] | None = None,
+              record_ack: Callable[[str, Actor], dict] | None = None) -> None:
     """Inject the server-side handlers (avoids a circular import)."""
     _handlers["record_verdict"] = record_verdict
     if on_wrong:
         _handlers["on_wrong"] = on_wrong
     if on_message:
         _handlers["on_message"] = on_message
+    if record_ack:
+        _handlers["record_ack"] = record_ack
 
 
 def _guard(request: Request, body: bytes) -> Response | None:
@@ -99,4 +102,11 @@ async def slack_interactivity(request: Request) -> Any:
             on_wrong = _handlers.get("on_wrong")
             if on_wrong:
                 asyncio.create_task(on_wrong(event_id, actor))
+        elif action.get("action_id") == "ack":
+            record_ack = _handlers.get("record_ack")
+            if record_ack:
+                out = record_ack(event_id, actor)
+                logger.info("slack ack", extra={"ctx": {
+                    "event_id": event_id, "actor": actor.user_id,
+                    "already": out.get("already_acked", False)}})
     return {"ok": True}
