@@ -14,6 +14,8 @@ import os
 import time
 from collections import defaultdict
 
+from chokotei_shared import categorize
+
 DEFAULT_STOP_S = float(os.environ.get("ANALYTICS_DEFAULT_STOP_S", 300.0))
 _DAY = 86_400.0
 
@@ -39,7 +41,11 @@ def _loss_minutes(ev: dict) -> float:
 
 
 def _category(rec: dict) -> str:
-    return (rec.get("rca") or {}).get("category") or "other"
+    """Read-time category rescue: stored/cached RCA rows predate the keyword
+    fallback and sit at "other" — recategorize from their cause text so the
+    Pareto shows structure without a data migration."""
+    rca = rec.get("rca") or {}
+    return categorize(rca.get("category"), *(rca.get("cause_candidates") or []))
 
 
 def pareto(events: list[dict], days: int, now: float | None = None) -> dict:

@@ -42,6 +42,7 @@ from chokotei_shared import (
     AnomalyEvent,
     FeedbackCase,
     RcaResult,
+    categorize,
     db,
     obs,
 )
@@ -150,7 +151,9 @@ async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
                     extra={"ctx": {"event_id": ev.event_id, "signature": sig}})
         return
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
-    decision = await asyncio.to_thread(routing.resolve, ev.event_id, rca.category)
+    # keyword rescue here too: DB-restored rca_cache rows predate the fallback
+    cat = categorize(rca.category, *rca.cause_candidates)
+    decision = await asyncio.to_thread(routing.resolve, ev.event_id, cat)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
     # embed the annotated anomaly frame (red box) in the card — but only once
     # it's actually in GCS, so Slack never fetches a missing image (Req 1: image
@@ -299,6 +302,12 @@ async def events() -> list[dict]:
                            "actor_id": v.get("actor_id"),
                            "actor_name": v.get("actor_name"),
                            "at": v.get("ts")} if v else None)
+        # read-time category rescue (matches analytics._category) — stored rows
+        # from before the keyword fallback would otherwise drill down as "other"
+        rca = rec.get("rca")
+        if rca:
+            rca["category"] = categorize(rca.get("category"),
+                                         *(rca.get("cause_candidates") or []))
     return recs
 
 

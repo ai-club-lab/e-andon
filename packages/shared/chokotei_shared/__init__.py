@@ -26,6 +26,7 @@ from chokotei_shared.contracts import (
     PartObservation,
     RcaResult,
     RoutingDecision,
+    categorize,
     normalize_category,
 )
 
@@ -55,5 +56,6 @@ __all__ = [
     "PartObservation",
     "RcaResult",
     "RoutingDecision",
+    "categorize",
     "normalize_category",
 ]

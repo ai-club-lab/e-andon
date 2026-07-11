@@ -81,6 +81,46 @@ def ensure_schema() -> None:
                    (emb.to_vector_literal(v), r["id"]))
     if rows:
         logger.info("backfilled %d past-case embeddings", len(rows))
+    _migrate_legacy_summaries()
+
+
+def _migrate_legacy_summaries() -> None:
+    """One-shot rewrite of pre-key/value rows (summary template '映像で…' with
+    the cause text baked in, which poisons situation-keyed retrieval): rebuild
+    the summary from the source event's measured values, move the 補足 into
+    evidence_note, and re-embed. New-format keys start with '映像検知' so the
+    LIKE guard makes this idempotent."""
+    rows = db.fetch("SELECT id, summary, source_event_id FROM past_cases "
+                    "WHERE summary LIKE %s", ("映像で%",))
+    if not rows:
+        return
+    import event_store
+    import situation
+
+    migrated = 0
+    for r in rows:
+        rec = event_store.get_event(r["source_event_id"]) if r["source_event_id"] else None
+        ev = (rec or {}).get("event")
+        if ev:
+            new_summary = situation.situation_text(
+                ev["kind"], ev["peak_magnitude"], ev.get("started_ts"), ev.get("ended_ts"))
+        else:  # source event gone — keep at least kind + the shared prefix
+            m = re.search(r"映像で(offset|rotation|gap)", r["summary"])
+            if not m:
+                continue
+            kind = m.group(1)
+            new_summary = f"映像検知 {situation.KIND_JA.get(kind, kind)}({kind}) センサー状況不明"
+        v = emb.embed(new_summary)
+        if v is None:
+            return  # embedding down — legacy rows still match the guard, retried next startup
+        note = re.search(r"（現場の補足: (.+?)）", r["summary"])
+        db.execute("UPDATE past_cases SET summary = %s, embedding = %s::vector, "
+                   "evidence_note = COALESCE(evidence_note, %s) WHERE id = %s",
+                   (new_summary, emb.to_vector_literal(v),
+                    note.group(1) if note else None, r["id"]))
+        migrated += 1
+    if migrated:
+        logger.info("migrated %d legacy case summaries to situation keys", migrated)
 
 
 def add(case: FeedbackCase) -> None:

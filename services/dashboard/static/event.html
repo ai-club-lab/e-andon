@@ -88,8 +88,15 @@ async function load(){
   suggestions = d.suggestions || [];
   const rca = d.rca || {};
   const conf = Math.min(rca.confidence ?? 0, 0.95);
-  const kinds = {offset:'横ズレ', rotation:'角度ずれ', gap:'間隔異常'};
+  // same vocabulary as the dashboard's AI-vision cards (整列ズレ/角度ズレ/ピッチ偏差)
+  const kinds = {offset:'整列ズレ（横）', rotation:'角度ズレ', gap:'ピッチ偏差'};
+  // which line, when — a foreman opening this hours later from Slack must be
+  // able to tell whether it is the current stop or an old one
+  const at = d.event.created_at
+    ? new Date(d.event.created_at*1000).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
+    : '';
   $('#main').innerHTML =
+    `<div style="color:var(--muted);font-size:13px;margin-bottom:6px">🏭 組立ライン1（整列・供給工程）${at?'｜'+at+' 発生':''}</div>` +
     `<div class="cause">${(rca.cause_candidates||['推定中']).slice(0,2).join('、')}</div>` +
     `<div>確信度 <span class="conf">${Math.round(conf*100)}%</span>` +
     `｜検知: ${kinds[d.event.kind]||d.event.kind} ${Math.round(d.event.peak_magnitude)}px</div>` +

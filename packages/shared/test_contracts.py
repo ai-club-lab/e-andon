@@ -62,3 +62,25 @@ def test_notification_record_is_the_idempotency_key():
     rec = NotificationRecord(event_id="ev-1", channel_id="C1",
                              message_ts="1720000000.000100", posted_at=1720000000.0)
     assert rec.event_id == "ev-1" and rec.message_ts
+
+
+def test_categorize_passes_explicit_enum_through():
+    from chokotei_shared import categorize
+    assert categorize("positioning", "ガイドレールの緩み") == "positioning"
+
+
+def test_categorize_falls_back_to_cause_keywords_when_enum_missing():
+    """Gemini omitting the enum must not collapse the Pareto/routing to
+    "other" — the deterministic keyword map recovers the bucket."""
+    from chokotei_shared import categorize
+    assert categorize(None, "搬送ガイドレール固定ボルトの緩みによる横ズレ") == "conveyance"
+    assert categorize("", "位置決め治具の摩耗・ガタによる整列精度低下") == "positioning"
+    assert categorize("other", "カメラの誤検知の可能性") == "sensor"
+    # positioning wins over a co-occurring conveyance word (order of buckets)
+    assert categorize(None, "位置決め治具のズレでベルトに干渉") == "positioning"
+
+
+def test_categorize_stays_other_when_nothing_matches():
+    from chokotei_shared import categorize
+    assert categorize(None, "原因不明") == "other"
+    assert categorize(None) == "other"

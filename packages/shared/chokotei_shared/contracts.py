@@ -90,6 +90,34 @@ def normalize_category(raw: object) -> CauseCategory:
     return s if s in CAUSE_CATEGORIES else "other"  # type: ignore[return-value]
 
 
+# Deterministic keyword→category map, mirroring the RCA instruction's own
+# definition of the enum (positioning=位置決め治具・整列機構 / conveyance=搬送・
+# ガイドレール・ベルト・送り機構 / sensor=センサー系). Order matters: the first
+# matching bucket wins, and positioning terms are checked before conveyance so
+# 「位置決め」「治具」 beat a co-occurring 「ズレ」.
+_CATEGORY_KEYWORDS: tuple[tuple[CauseCategory, tuple[str, ...]], ...] = (
+    ("positioning", ("位置決め", "治具", "整列機構", "ワーク受け", "ストッパ")),
+    ("conveyance", ("搬送", "ガイドレール", "ガイド", "レール", "ベルト", "チェーン",
+                    "コンベア", "送り", "インデックス", "ピッチ")),
+    ("sensor", ("センサ", "誤検知", "カメラ", "計装")),
+)
+
+
+def categorize(raw: object, *texts: str) -> CauseCategory:
+    """Category with a keyword fallback: Gemini often omits the enum, which
+    used to collapse everything to "other" (a one-bar Pareto and 班長-only
+    routing). When the guarded enum is "other", map deterministically from the
+    cause text — same closed vocabulary, still zero LLM involvement."""
+    cat = normalize_category(raw)
+    if cat != "other":
+        return cat
+    joined = " ".join(t for t in texts if t)
+    for bucket, words in _CATEGORY_KEYWORDS:
+        if any(w in joined for w in words):
+            return bucket
+    return "other"
+
+
 class RcaResult(BaseModel):
     """Root-cause inference output (Req 5)."""
 

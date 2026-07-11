@@ -112,7 +112,9 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .conf .bar i{display:block;height:100%;background:var(--brand)}
 .conf small{color:var(--muted);font-size:11px}
 .evi{font-size:12px;color:var(--muted);background:var(--bg);border-radius:8px;padding:7px 9px;margin-top:6px}
-.thumb{width:100%;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
+/* aspect-ratio reserves the box before the async load, so the verdict buttons
+   below never get pushed out of the initial view */
+.thumb{width:100%;aspect-ratio:1014/634;object-fit:cover;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
 .fb{display:flex;gap:8px;margin-top:10px}
 .fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
@@ -133,8 +135,30 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .inrow input:focus{border-color:var(--brand)}
 .inrow button{border:0;background:var(--brand);color:#fff;border-radius:10px;padding:0 16px;font-weight:600;cursor:pointer}
 .empty{color:var(--muted);font-size:13px;text-align:center;margin:auto;padding:20px;line-height:1.7}
+.status{white-space:nowrap}
 @media(max-width:1100px){.sidebar{flex-basis:180px}.chat{flex-basis:320px}.grid.g3{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:820px){.grid.g3,.grid.g2{grid-template-columns:1fr}}
+@media(max-width:820px){.grid.g3,.grid.g2{grid-template-columns:repeat(2,1fr)}}
+/* phone: the 3-pane shell collapses to one scrolling column —
+   line selector becomes a horizontal chip row, chat becomes a bottom block */
+@media(max-width:700px){
+  body{overflow:auto;display:block}
+  header{flex-wrap:wrap;gap:8px;padding:10px 12px;position:sticky;top:0}
+  .brand small{display:none}
+  .hstat .kpi{min-width:60px;padding:4px 9px}
+  .status{font-size:12px;padding:6px 10px}
+  .shell{display:block}
+  .sidebar{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:8px 12px;
+    border-right:0;border-bottom:1px solid var(--line)}
+  .side-h{display:none}
+  #lines{display:flex;gap:6px;flex:0 0 auto}
+  .line-item{width:auto;flex:0 0 auto;margin:0;white-space:nowrap}
+  .line-item .lt span{display:none}
+  .menu-item{width:auto;flex:0 0 auto;white-space:nowrap}
+  .menu-item:disabled{display:none}
+  .center{overflow:visible;padding:12px}
+  .grid.g3,.grid.g2{grid-template-columns:1fr}
+  .chat{border-left:0;border-top:1px solid var(--line);height:72vh}
+}
 </style>
 </head>
 <body>
@@ -253,7 +277,7 @@ function renderCenter(){
     if(!localStorage.getItem('eandon-guide-hide')){
       c.insertAdjacentHTML('beforeend', `
       <div class="guide"><button class="gx" onclick="localStorage.setItem('eandon-guide-hide','1');this.parentElement.remove()">✕</button>
-        <b>👀 デモの見方（リアルタイム監視・約60秒）</b><ol>
+        <b>👀 デモの見方（検知から通知まで実時間・約10〜30秒）</b><ol>
         <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → 動画終了とともにライン停止（チョコ停）</li>
         <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
         <li>「✓ 正しい」で承認、「✗ 原因が違う」で<b>AIが対話で真因を質問</b> — 答えると事例化して次回に反映（AI正答率も更新）</li>
@@ -271,7 +295,7 @@ function renderCenter(){
       <div class="sect"><div class="sect-h">画像解析 <span class="badge">AI ビジョン</span>
         <span class="note">カメラ映像から算出（センサー非搭載の整列機構を監視）</span></div>
         <div class="grid g3" id="vision-grid"></div></div>
-      <div class="sect"><div class="sect-h">センサーログ <span class="note">機械センサーの生データ · 全チャネル正常</span></div>
+      <div class="sect"><div class="sect-h">センサーログ <span class="note" id="sensor-note">機械センサーの生データ · 全チャネル正常</span></div>
         <div class="grid g3" id="sensor-grid"></div></div>`);
     $('#frame').src = lastImg?('data:image/jpeg;base64,'+lastImg):'';
     $('#c-parts').textContent=lastParts; $('#c-ts').textContent=(+lastTs).toFixed(1);
@@ -362,6 +386,8 @@ async function iotPoints(key){
 async function redraw(){
   const L=LINES.find(x=>x.id===activeLine);
   if(L.live){
+    const sn=$('#sensor-note'); if(sn) sn.textContent='機械センサーの生データ · '+
+      (lineStatus==='stopped'?'ライン停止中（残留値・温度は自然冷却）':'全チャネル正常');
     // vision metrics from the live stream
     for(const k in VISION){ const cfg=VISION[k];
       const pts=hist.t.map((t,i)=>[t,hist[k][i]]);
@@ -440,13 +466,17 @@ async function addAlert(n){
   ensureFeed();
   const id=it.event.event_id;
   const div=document.createElement('div'); div.className='alert-card'; div.id='ac-'+id;
+  // the story text already ends with 根拠 — the evidence row below shows it
+  // structured, so strip the tail instead of printing the same values twice
+  const story=(n.text||'異常を検知しました').split(/。?根拠:/)[0].replace(/。?$/,'。');
   div.innerHTML=
     '<div class="ah">🤖 AIエージェント · 組立ライン1</div>'+
-    '<div class="ab"><div class="cause">'+(n.text||'異常を検知しました')+'</div>'+
+    '<div class="ab"><div class="cause">'+story+'</div>'+
     '<div class="conf"><div class="bar"><i style="width:'+confPct(c.confidence)+'%"></i></div>'+
     '<small>確信度 '+confPct(c.confidence)+'%</small></div>'+
     '<div class="evi">参照ログ: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
-    '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()">'+
+    '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()" '+
+    'onload="feed.scrollTop=feed.scrollHeight">'+
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
     '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div></div>';
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;

@@ -22,7 +22,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 import situation
-from chokotei_shared import GCP, AnomalyEvent, RcaResult, normalize_category
+from chokotei_shared import GCP, AnomalyEvent, RcaResult, categorize
 from tools import (
     _active_correction,
     bind_active_event,
@@ -311,13 +311,16 @@ async def infer(event: AnomalyEvent, user_id: str = "line-op") -> RcaResult:
     evidence = list(data.get("evidence", []))[:6]
     if trace:
         evidence.append(trace)
+    causes = list(data.get("cause_candidates", []))[:3] or ["推定不能"]
     return RcaResult(
         event_id=event.event_id,
-        cause_candidates=list(data.get("cause_candidates", []))[:3] or ["推定不能"],
+        cause_candidates=causes,
         # deterministic cap outside the LLM: self-reported confidence is
         # calibration-free, so a flat 1.0 (「100%」) must never reach operators
         confidence=min(float(data.get("confidence", 0.0)), 0.95),
         evidence=evidence,
-        # vocabulary guard outside the LLM: routing keys on this (Req 5.2/5.4)
-        category=normalize_category(data.get("category")),
+        # vocabulary guard outside the LLM: routing keys on this (Req 5.2/5.4).
+        # Gemini often omits the enum — fall back to deterministic keywords
+        # over the cause text so "other" stays rare (Pareto/routing stay alive)
+        category=categorize(data.get("category"), *causes),
     )
