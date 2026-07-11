@@ -116,11 +116,23 @@ class Feedback(BaseModel):
 
 
 class FeedbackCase(BaseModel):
-    """A stored, human-confirmed case reused as few-shot context (Req 9)."""
+    """A stored, human-confirmed case reused as few-shot context (Req 9).
+
+    Key/value split: ``summary`` is the situation key (measured facts only,
+    embedded for retrieval — see agent ``situation.py``); everything else is
+    the value payload (conclusions) and must stay out of the embedding.
+    """
 
     summary: str
     correct_cause: str
     source_event_id: str
+    # confirmed = the AI's cause was adjudicated right (reinforcement);
+    # corrected = a human replaced it (default keeps old stored rows valid)
+    verdict: Literal["corrected", "confirmed"] = "corrected"
+    # what the operator saw at the cause site ("ボルトが手で回った")
+    evidence_note: str | None = None
+    # what was done to restore the line ("増し締めして再稼働")
+    action_taken: str | None = None
     # optional field photo taken at correction time — multimodal few-shot
     # evidence for the next inference (human-loop Req 9)
     attachment_uri: str | None = None

@@ -11,6 +11,7 @@ from typing import Callable
 
 import iot_store
 import past_cases as pc
+import situation
 
 _CHANNEL_HELP = ("belt_speed [m/min] / motor_current [A] / vibration [mm/s] / "
                  "motor_temp [C] / air_pressure [MPa]")
@@ -59,13 +60,41 @@ def query_logs(channel: str, t0: float, t1: float) -> dict:
             "min": round(min(vals), 3), "max": round(max(vals), 3), "n": len(vals)}
 
 
+# The retrieval key is server-built, like the correction write path: the agent
+# decides WHEN to search (autonomy, visible in the tool trace), but WHAT keys
+# the search is the measured situation of the event bound to this request —
+# not the model's own hypothesis words, which would make the search confirm
+# whatever the model already guessed.
+_active_event: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "active_event", default=None)
+
+
+def bind_active_event(event: dict | None) -> contextvars.Token:
+    """Bind the anomaly under analysis for this request (server-side only)."""
+    return _active_event.set(event)
+
+
+def reset_active_event(token: contextvars.Token) -> None:
+    _active_event.reset(token)
+
+
 def search_past_cases(query: str) -> list[dict]:
-    """Search human-confirmed past cases for few-shot context (Req 9.1/9.2).
+    """Search past cases whose measured situation resembles the current anomaly.
+
+    The current anomaly's measured situation (kind, peak, duration, sensor
+    context) is prepended to the key automatically — pass what is OBSERVED
+    (現象・兆候, in field words), never your own cause hypothesis.
 
     Args:
-        query: free-text describing the current anomaly.
+        query: observed symptom description; may be empty.
     """
-    return [c.model_dump() for c in pc.search(query)]
+    ev = _active_event.get()
+    q = (query or "").strip()
+    if ev:
+        key = situation.situation_text(ev.get("kind", ""), ev.get("peak_magnitude", 0.0),
+                                       ev.get("started_ts"), ev.get("ended_ts"))
+        q = f"{key} 現象: {q}" if q else key
+    return [c.model_dump() for c in pc.search(q)]
 
 
 # --- HITL correction capture (Req 8/9) ---
@@ -76,16 +105,17 @@ def search_past_cases(query: str) -> list[dict]:
 # cannot see, and persistence goes through an injected recorder (audit + dedupe).
 _active_correction: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "active_correction", default=None)
-_recorder: Callable[[dict, str, str], dict] | None = None
+_recorder: Callable[[dict, str, str, str], dict] | None = None
 
 
-def set_correction_recorder(fn: Callable[[dict, str, str], dict]) -> None:
+def set_correction_recorder(fn: Callable[[dict, str, str, str], dict]) -> None:
     """Inject the persistence side-effect (dashboard wires past_cases + audit)."""
     global _recorder
     _recorder = fn
 
 
-def record_correction(correct_cause: str, evidence_note: str = "") -> dict:
+def record_correction(correct_cause: str, evidence_note: str = "",
+                      action_taken: str = "") -> dict:
     """Record the operator's corrected root cause for the anomaly under review.
 
     Call this ONLY after the operator has named a concrete cause (a machine part
@@ -95,6 +125,8 @@ def record_correction(correct_cause: str, evidence_note: str = "") -> dict:
     Args:
         correct_cause: the operator's confirmed root cause, in their words.
         evidence_note: optional supporting detail (what they saw / checked).
+        action_taken: optional restoration action in the operator's words
+            (e.g. 増し締めして再稼働). Leave empty if they did not say.
 
     Returns:
         {"recorded": bool, ...}. If not recorded, the reason says what to ask next.
@@ -106,7 +138,8 @@ def record_correction(correct_cause: str, evidence_note: str = "") -> dict:
     if len(cause) < 2:
         return {"recorded": False,
                 "reason": "原因が具体的でありません。オペレーターにもう一度確認してください"}
-    result = _recorder(holder["event"], cause[:200], (evidence_note or "").strip()[:200])
+    result = _recorder(holder["event"], cause[:200], (evidence_note or "").strip()[:200],
+                       (action_taken or "").strip()[:200])
     if result.get("recorded"):
         holder["recorded"] = True
         holder["cause"] = cause[:200]

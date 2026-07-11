@@ -33,6 +33,7 @@ import routing
 import sinks
 import slack_routes
 import past_cases as pc
+import situation
 from fastapi.responses import Response
 from chokotei_shared import (
     DETECTION,
@@ -352,7 +353,7 @@ _DEFAULT_ACTOR = Actor(surface="dashboard", user_id="line-op")
 
 
 def _persist_correction(event_id: str, cause: str, evidence_note: str = "",
-                        actor: Actor | None = None) -> dict:
+                        actor: Actor | None = None, action_taken: str = "") -> dict:
     """Reflux a human correction into the asset store — the shared write behind
     both the /feedback 'wrong' path and the conversational /correct agent.
 
@@ -375,14 +376,43 @@ def _persist_correction(event_id: str, cause: str, evidence_note: str = "",
         "actor_surface": actor.surface, "actor_id": actor.user_id,
         "actor_name": actor.display_name,
     })
-    detail = f"（現場の補足: {note}）" if note else ""
-    summary = f"映像で{ev['kind']}整列異常を検知・センサー正常・ライン停止 {cause}{detail}"
+    # situation key from measured values (kind/peak/duration/sensor context) —
+    # conclusions (cause, note, action) stay on the value side, out of the key
+    summary = _situation_key(ev)
     # a pending field photo rides the correction into the case (Req 9.2)
     attachment = attachments_store.uri_for(event_id)
     pc.add(FeedbackCase(summary=summary, correct_cause=cause, source_event_id=event_id,
+                        verdict="corrected", evidence_note=note or None,
+                        action_taken=(action_taken or "").strip()[:MAX_CAUSE_LEN] or None,
                         attachment_uri=attachment))
     state.rca_cache.pop(f"{ev['kind']}:{round(ev['peak_magnitude'])}", None)
     return {"recorded": True, "metrics": feedback_store.metrics()}
+
+
+def _situation_key(ev: dict) -> str:
+    return situation.situation_text(ev["kind"], ev["peak_magnitude"],
+                                    ev.get("started_ts"), ev.get("ended_ts"))
+
+
+def _persist_confirmation(rec: dict) -> None:
+    """✅正しい も事例化する — 当たった推論を状況キーごと強化する（外れからしか
+    学ばないストアにしない）。同一シグネチャの再裁定（公開デモのリプレイ）は
+    summary の量子化により同文になるため、完全一致で重複を弾く。Best-effort:
+    失敗しても裁定の記録自体は既に永続済み。"""
+    try:
+        ai = rec.get("rca") or {}
+        cause = (ai.get("cause_candidates") or [""])[0].strip()
+        if not cause or cause == "推定不能":
+            return
+        ev = rec["event"]
+        summary = _situation_key(ev)
+        if pc.has_case(summary, cause):
+            return
+        pc.add(FeedbackCase(summary=summary, correct_cause=cause, verdict="confirmed",
+                            source_event_id=ev["event_id"]))
+    except Exception:
+        logger.warning("confirmed-case reflux failed (verdict already durable)",
+                       exc_info=True)
 
 
 def _record_verdict(event_id: str, verdict: str, actor: Actor,
@@ -413,6 +443,7 @@ def _record_verdict(event_id: str, verdict: str, actor: Actor,
             "actor_surface": actor.surface, "actor_id": actor.user_id,
             "actor_name": actor.display_name,
         })
+        _persist_confirmation(rec)
     _after_verdict(event_id, verdict, actor)
     return {"ok": True, "metrics": feedback_store.metrics()}
 
@@ -550,9 +581,10 @@ async def _wire_correction() -> None:
     """Let the correction agent's record_correction tool persist through the
     dashboard's shared reflux path (past_cases + audit + cache invalidation)."""
     set_correction_recorder(
-        lambda ev_ctx, cause, note: _persist_correction(
+        lambda ev_ctx, cause, note, action="": _persist_correction(
             ev_ctx["event_id"], cause, note,
-            actor=Actor(**ev_ctx["actor"]) if ev_ctx.get("actor") else None))
+            actor=Actor(**ev_ctx["actor"]) if ev_ctx.get("actor") else None,
+            action_taken=action))
 
 
 @app.on_event("startup")
@@ -610,6 +642,9 @@ def _event_rec(event_id: str) -> dict | None:
 def _correction_ctx(rec: dict, actor: Actor) -> dict:
     ev, ai = rec["event"], rec.get("rca") or {}
     return {"event_id": ev["event_id"], "kind": ev["kind"],
+            # measured fields feed the situation-keyed past-case search
+            "peak_magnitude": ev.get("peak_magnitude", 0.0),
+            "started_ts": ev.get("started_ts"), "ended_ts": ev.get("ended_ts"),
             "ai_cause": "、".join(ai.get("cause_candidates", [])[:2]),
             "actor": actor.model_dump()}
 

@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS past_cases (
 -- The service also runs this at startup (past_cases.ensure_schema) and
 -- backfills NULL embeddings, so existing databases need no manual migration.
 ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS embedding vector(768);
+-- case = key/value: summary is the measured situation key (the only embedded
+-- text); verdict / evidence_note / action_taken are the conclusion payload.
+ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS verdict TEXT DEFAULT 'corrected';
+ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS evidence_note TEXT;
+ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS action_taken TEXT;
 
 -- ---------------------------------------------------------------------------
 -- andon-human-loop (design.md §5): notification idempotency, deterministic

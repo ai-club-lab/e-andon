@@ -39,13 +39,21 @@ def _tokens(s: str) -> set[str]:
     return toks
 
 
+_COLS = "summary, correct_cause, source_event_id, attachment_uri, verdict, evidence_note, action_taken"
+
+
+def _from_row(r: dict) -> FeedbackCase:
+    return FeedbackCase(summary=r["summary"], correct_cause=r["correct_cause"],
+                        source_event_id=r["source_event_id"] or "",
+                        attachment_uri=r.get("attachment_uri"),
+                        verdict=r.get("verdict") or "corrected",
+                        evidence_note=r.get("evidence_note"),
+                        action_taken=r.get("action_taken"))
+
+
 def _stored() -> list[FeedbackCase]:
     if db.enabled():
-        rows = db.fetch(
-            "SELECT summary, correct_cause, source_event_id, attachment_uri FROM past_cases")
-        return [FeedbackCase(summary=r["summary"], correct_cause=r["correct_cause"],
-                             source_event_id=r["source_event_id"] or "",
-                             attachment_uri=r.get("attachment_uri")) for r in rows]
+        return [_from_row(r) for r in db.fetch(f"SELECT {_COLS} FROM past_cases")]
     if STORE.exists():
         with STORE.open() as fh:
             return [FeedbackCase(**json.loads(line)) for line in fh if line.strip()]
@@ -61,9 +69,12 @@ def ensure_schema() -> None:
     if not db.enabled():
         return
     db.execute(f"ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS embedding vector({emb.DIM})")
+    db.execute("ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS verdict TEXT DEFAULT 'corrected'")
+    db.execute("ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS evidence_note TEXT")
+    db.execute("ALTER TABLE past_cases ADD COLUMN IF NOT EXISTS action_taken TEXT")
     rows = db.fetch("SELECT id, summary, correct_cause FROM past_cases WHERE embedding IS NULL")
     for r in rows:
-        v = emb.embed(f"{r['summary']} {r['correct_cause']}")
+        v = emb.embed(r["summary"])
         if v is None:
             return  # embedding down; retried next startup
         db.execute("UPDATE past_cases SET embedding = %s::vector WHERE id = %s",
@@ -73,19 +84,37 @@ def ensure_schema() -> None:
 
 
 def add(case: FeedbackCase) -> None:
-    """Append a human-confirmed case (Req 9.2), embedded for vector search."""
+    """Append a human-confirmed case (Req 9.2), embedded for vector search.
+
+    Only the situation key (``summary``) is embedded — never the cause — so
+    retrieval ranks by "similar data", not "similar conclusion".
+    """
     if db.enabled():
-        v = emb.embed(f"{case.summary} {case.correct_cause}")
+        v = emb.embed(case.summary)
         db.execute(
             "INSERT INTO past_cases (summary, correct_cause, source_event_id, embedding, "
-            "attachment_uri) VALUES (%s, %s, %s, %s::vector, %s)",
+            "attachment_uri, verdict, evidence_note, action_taken) "
+            "VALUES (%s, %s, %s, %s::vector, %s, %s, %s, %s)",
             (case.summary, case.correct_cause, case.source_event_id,
-             emb.to_vector_literal(v) if v else None, case.attachment_uri),
+             emb.to_vector_literal(v) if v else None, case.attachment_uri,
+             case.verdict, case.evidence_note, case.action_taken),
         )
         return
     STORE.parent.mkdir(parents=True, exist_ok=True)
     with STORE.open("a") as fh:
         fh.write(case.model_dump_json() + "\n")
+
+
+def has_case(summary: str, correct_cause: str) -> bool:
+    """Exact situation+cause already stored? Guards confirmed-verdict dedupe:
+    the public demo replays the same signature, and every ✅ would otherwise
+    pile up an identical case (summary quantization makes recurrences equal)."""
+    if db.enabled():
+        rows = db.fetch("SELECT 1 FROM past_cases WHERE summary = %s AND correct_cause = %s "
+                        "LIMIT 1", (summary, correct_cause))
+        return bool(rows)
+    return any(c.summary == summary and c.correct_cause == correct_cause
+               for c in _stored())
 
 
 def _keyword_search(query: str, candidates: list[FeedbackCase], k: int) -> list[FeedbackCase]:
@@ -102,16 +131,13 @@ def _vector_search(query: str, k: int) -> list[FeedbackCase] | None:
         return None
     try:
         rows = db.fetch(
-            "SELECT summary, correct_cause, source_event_id, attachment_uri "
-            "FROM past_cases WHERE embedding IS NOT NULL "
+            f"SELECT {_COLS} FROM past_cases WHERE embedding IS NOT NULL "
             "ORDER BY embedding <=> %s::vector LIMIT %s",
             (emb.to_vector_literal(qv), k))
     except Exception:
         logger.warning("pgvector search failed; keyword fallback", exc_info=True)
         return None
-    return [FeedbackCase(summary=r["summary"], correct_cause=r["correct_cause"],
-                         source_event_id=r["source_event_id"] or "",
-                         attachment_uri=r.get("attachment_uri")) for r in rows]
+    return [_from_row(r) for r in rows]
 
 
 def search(query: str, k: int = 3) -> list[FeedbackCase]:

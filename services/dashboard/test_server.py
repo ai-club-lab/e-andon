@@ -171,8 +171,56 @@ def test_should_reflux_via_record_correction_tool(client, monkeypatch) -> None:
         tools._active_correction.reset(tok)
     assert res["recorded"] is True and holder["recorded"] is True
     assert added and added[0].correct_cause == "ガイドレール固定ボルトの緩み"
-    assert "補足" in added[0].summary          # evidence_note folded into the case
+    assert added[0].evidence_note == "カバーを開けたら緩んでいた"   # value side, not in the key
+    assert "緩" not in added[0].summary, "cause words must never enter the situation key"
     assert "offset:16" not in server.state.rca_cache, "recurrence must re-infer"
+
+
+def test_should_pass_action_taken_through_correction_tool(client, monkeypatch) -> None:
+    """The optional restoration action rides the same audited reflux path."""
+    import tools
+    _seed_event()
+    added = []
+    monkeypatch.setattr(server.pc, "add", added.append)
+    holder = {"event": {"event_id": "evt-ui-1"}, "recorded": False, "cause": None}
+    tok = tools._active_correction.set(holder)
+    try:
+        res = tools.record_correction("ガイドレール固定ボルトの緩み", "", "増し締めして再稼働")
+    finally:
+        tools._active_correction.reset(tok)
+    assert res["recorded"] is True
+    assert added[0].action_taken == "増し締めして再稼働"
+    assert "増し締め" not in added[0].summary   # action is payload, not key
+
+
+def _clear_cases() -> None:
+    if os.path.exists(os.environ["CASES_STORE"]):
+        os.remove(os.environ["CASES_STORE"])
+
+
+def test_should_reflux_confirmed_case_when_verdict_is_correct(client) -> None:
+    """✅正しい also becomes a case (verdict=confirmed) so hits reinforce the
+    hypothesis for that situation — the store must not learn only from misses."""
+    _clear_cases()
+    _seed_event()
+    r = client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct"}).json()
+    assert r["ok"] is True
+    confirmed = [c for c in server.pc._stored() if c.verdict == "confirmed"]
+    assert len(confirmed) == 1
+    assert confirmed[0].correct_cause == "送り機構の速度低下"
+    assert "送り機構" not in confirmed[0].summary   # key stays cause-free
+
+
+def test_should_dedupe_confirmed_case_when_same_signature_repeats(client) -> None:
+    """Public demo replays: every viewer's ✅ on the same signature must not
+    pile up identical cases (quantized key → exact-match dedupe)."""
+    _clear_cases()
+    _seed_event("evt-ui-a")
+    _seed_event("evt-ui-b")   # same kind/peak/window → same situation key
+    client.post("/feedback", json={"event_id": "evt-ui-a", "verdict": "correct"})
+    client.post("/feedback", json={"event_id": "evt-ui-b", "verdict": "correct"})
+    confirmed = [c for c in server.pc._stored() if c.verdict == "confirmed"]
+    assert len(confirmed) == 1
 
 
 # --- single verdict path with actor attribution (andon-human-loop Req 2, 4) ---
