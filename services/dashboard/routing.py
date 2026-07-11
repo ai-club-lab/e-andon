@@ -16,19 +16,22 @@ from chokotei_shared import CauseCategory, EscalationStep, RoutingDecision, db
 logger = logging.getLogger("routing")
 
 # Mirrors the schema.sql seed — used when no database is configured (local/CI).
+# 通知は「役割」ではなく「名前」に届く: 画面の語りが「この設備の担当は佐藤さん→
+# 通知しました」になるよう、当番ロスター（デモ用の架空名簿）を値に持つ。
+# 実運用では routing_rules テーブルの UPDATE だけで差し替え（再デプロイ不要）。
 _FALLBACK_RULES: dict[str, dict] = {
-    "positioning": {"primary_mention": "（保全担当・位置決め）", "tier2_mention": "（班長）",
+    "positioning": {"primary_mention": "保全・高橋さん（位置決め担当）", "tier2_mention": "班長・鈴木さん",
                     "tier2_delay_s": 300, "tier3_contact": "設備ベンダー保守窓口 0120-000-000（デモ値）",
-                    "tier3_delay_s": 900, "version": 1},
-    "conveyance": {"primary_mention": "（保全担当・搬送）", "tier2_mention": "（班長）",
+                    "tier3_delay_s": 900, "version": 2},
+    "conveyance": {"primary_mention": "保全・佐藤さん（搬送担当）", "tier2_mention": "班長・鈴木さん",
                    "tier2_delay_s": 300, "tier3_contact": "設備ベンダー保守窓口 0120-000-000（デモ値）",
-                   "tier3_delay_s": 900, "version": 1},
-    "sensor": {"primary_mention": "（計装担当）", "tier2_mention": "（班長）",
+                   "tier3_delay_s": 900, "version": 2},
+    "sensor": {"primary_mention": "計装・田中さん", "tier2_mention": "班長・鈴木さん",
                "tier2_delay_s": 300, "tier3_contact": "センサーベンダー窓口 0120-111-111（デモ値）",
-               "tier3_delay_s": 900, "version": 1},
-    "other": {"primary_mention": "（班長）", "tier2_mention": "（班長）",
+               "tier3_delay_s": 900, "version": 2},
+    "other": {"primary_mention": "班長・鈴木さん", "tier2_mention": "製造課長・伊藤さん",
               "tier2_delay_s": 300, "tier3_contact": "設備ベンダー保守窓口 0120-000-000（デモ値）",
-              "tier3_delay_s": 900, "version": 1},
+              "tier3_delay_s": 900, "version": 2},
 }
 
 

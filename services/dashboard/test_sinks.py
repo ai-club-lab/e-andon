@@ -215,7 +215,7 @@ def test_update_card_reflects_verdict_and_actor(clean_store) -> None:
 
 
 def test_post_card_carries_ack_button_and_similar_case(clean_store) -> None:
-    """🔧 対応中 button + 前回の対処 (cause/action/photo) ride the card —
+    """👋 私が対応します button + 前回の対処 (cause/action/photo) ride the card —
     the past-case store speaks to the human, not only to the agent."""
     fake = FakeClient()
     s = sinks.SlackSink(client=fake, channel_id="C1")
@@ -224,6 +224,6 @@ def test_post_card_carries_ack_button_and_similar_case(clean_store) -> None:
     asyncio.run(s.post_card(_event(), _rca(), _routing(),
                             "https://example.run.app/e/evt-s1", similar=similar))
     blob = json.dumps(fake.posts[0], ensure_ascii=False)
-    assert '"ack"' in blob and "対応中" in blob
+    assert '"ack"' in blob and "私が対応します" in blob
     assert "類似の過去停止" in blob and "増し締めして再稼働" in blob
     assert "https://example.run.app/attachment/evt-old" in blob

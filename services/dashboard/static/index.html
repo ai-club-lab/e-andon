@@ -288,7 +288,9 @@ function renderCenter(){
         <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → 動画終了とともにライン停止（チョコ停）</li>
         <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
         <li>「✓ 正しい」で承認、「✗ 原因が違う」で<b>AIが対話で真因を質問</b> — 答えると事例化して次回に反映（AI正答率も更新）</li>
-        <li>チャットで「各センサーは正常？」等の追加質問も可能。もう一度見るにはページを再読み込み</li></ol></div>`);
+        <li>チャットで「各センサーは正常？」等の追加質問も可能。もう一度見るにはページを再読み込み</li></ol>
+        <div style="margin-top:6px;color:var(--muted)">💡 本番運用では通知は現場のSlackに届き、担当者（当番表で自動選定）が応答します。
+        この画面は監視・分析用 — デモでは同じ裁定・対話をここでも体験できます（担当名はデモ用の架空名簿）。</div></div>`);
     }
     c.insertAdjacentHTML('beforeend', `
       <div class="sect"><div class="card">
@@ -471,6 +473,13 @@ function simHtml(sc){
     (sc.action_taken?' ／ 処置: '+escH(sc.action_taken):'')+
     (sc.photo?' ／ <a href="/attachment/'+encodeURIComponent(sc.source_event_id)+'" target="_blank">📷 現場写真</a>':'')+'</div>';
 }
+// 「この設備の担当は誰々 → 通知しました」— 通知の宛先を役割名でなく名前で語る
+function routeHtml(rt){
+  if(!rt||!rt.primary) return '';
+  let s='👥 この設備の担当: <b>'+escH(rt.primary)+'</b>'+(rt.notified?' に通知しました':'');
+  if(rt.tier2) s+='。応答がなければ'+rt.tier2_min+'分後に '+escH(rt.tier2)+' へ連絡します';
+  return '<div class="evi" style="margin-top:6px">'+s+'。</div>';
+}
 async function addAlert(n){
   if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
@@ -490,12 +499,13 @@ async function addAlert(n){
     '<div class="conf"><div class="bar"><i style="width:'+confPct(c.confidence)+'%"></i></div>'+
     '<small>確信度 '+confPct(c.confidence)+'%</small></div>'+
     '<div class="evi">参照ログ: '+(c.evidence||[]).slice(0,3).join(' ・ ')+'</div>'+
+    routeHtml(n.routing)+
     simHtml(n.similar_case)+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()" '+
     'onload="feed.scrollTop=feed.scrollHeight">'+
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
     '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div>'+
-    '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">🔧 対応中にする — 現場に向かう（呼び出しを停止）</button></div></div>';
+    '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">👋 私が対応します</button></div></div>';
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
 }
@@ -525,9 +535,10 @@ function renderChips(list){ const box=$('#chips'); if(!box) return; box.innerHTM
 async function ackEvt(btn,id){
   const r=await postJSON('/ack',{event_id:id,user_id:UID});
   if(r.already_adjudicated){ addMsg('bot','このイベントは裁定済みです。'); return; }
-  const who=r.already_acked?((r.ack&&(r.ack.actor_name||r.ack.actor_id))||'別の担当者'):'あなた';
   btn.classList.add('acked');
-  btn.textContent='🔧 対応中: '+who+(r.already_acked?'':'（エスカレーションを停止しました）');
+  btn.textContent = r.already_acked
+    ? '👋 '+(((r.ack&&(r.ack.actor_name||r.ack.actor_id))||'別の担当者'))+' さんが対応します'
+    : '👋 あなたが対応します — 以降の自動連絡は止めました';
 }
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);

@@ -55,7 +55,16 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
     conf = min(rca.confidence, 0.95)  # same deterministic cap as the dashboard
     cause = "、".join(rca.cause_candidates[:2])
     evidence = "\n".join(f"• {e}" for e in rca.evidence[:3])
-    mention = f"\n{routing.primary_mention} 対応をお願いします。" if routing else ""
+    # 事案 → 推測 → 「この設備の担当は誰々 → 通知しました」の語り。役割名や
+    # 内部語（エスカレーション等）を出さず、次に何が起きるかを名前で言う。
+    mention = ""
+    if routing:
+        tier2 = next((s for s in routing.escalation_plan
+                      if s.tier == 2 and s.target_mention), None)
+        mention = f"\n👥 この設備の担当: *{routing.primary_mention}* に通知しました。"
+        if tier2:
+            mention += (f"応答がなければ{tier2.delay_s // 60}分後に "
+                        f"{tier2.target_mention} へ連絡します。")
     blocks: list[dict] = [
         {"type": "header",
          "text": {"type": "plain_text", "text": "⚠ ライン停止（チョコ停）— 整列異常"}},
@@ -63,7 +72,7 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
             f"*真因候補*: {cause}\n*確信度*: {conf:.0%}\n*根拠*:\n{evidence}{mention}")}},
         {"type": "actions", "elements": [
             {"type": "button", "action_id": "ack",
-             "text": {"type": "plain_text", "text": "🔧 対応中"}, "value": ev.event_id},
+             "text": {"type": "plain_text", "text": "👋 私が対応します"}, "value": ev.event_id},
             {"type": "button", "action_id": "verdict_correct", "style": "primary",
              "text": {"type": "plain_text", "text": "✅ 正しい"}, "value": ev.event_id},
             {"type": "button", "action_id": "verdict_wrong", "style": "danger",

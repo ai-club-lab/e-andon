@@ -49,10 +49,10 @@ _DDL = [
         actor_name    TEXT,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now())""",
     """INSERT INTO routing_rules (category, primary_mention, tier2_mention, tier3_contact) VALUES
-        ('positioning', '（保全担当・位置決め）', '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
-        ('conveyance',  '（保全担当・搬送）',     '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
-        ('sensor',      '（計装担当）',           '（班長）', 'センサーベンダー窓口 0120-111-111（デモ値）'),
-        ('other',       '（班長）',               '（班長）', '設備ベンダー保守窓口 0120-000-000（デモ値）')
+        ('positioning', '保全・高橋さん（位置決め担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
+        ('conveyance',  '保全・佐藤さん（搬送担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
+        ('sensor',      '計装・田中さん', '班長・鈴木さん', 'センサーベンダー窓口 0120-111-111（デモ値）'),
+        ('other',       '班長・鈴木さん', '製造課長・伊藤さん', '設備ベンダー保守窓口 0120-000-000（デモ値）')
         ON CONFLICT (category) DO NOTHING""",
 ]
 

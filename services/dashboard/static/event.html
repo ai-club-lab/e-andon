@@ -48,7 +48,7 @@
 <h1>e-Andon — 停止イベントの裁定</h1>
 <div class="card" id="main">読み込み中…</div>
 <div class="card">
-  <button class="ackbtn" id="b-ack">🔧 対応中にする — 現場に向かう（呼び出しを停止）</button>
+  <button class="ackbtn" id="b-ack">👋 私が対応します</button>
   <div class="btns">
     <button class="ok" id="b-ok">✅ 正しい</button>
     <button class="ng" id="b-ng">❌ 違う</button>
@@ -109,13 +109,17 @@ async function load(){
     (sc.action_taken ? `<br>🔧 処置: ${esc(sc.action_taken)}` : '') +
     (sc.photo ? `<img class="simphoto" src="/attachment/${encodeURIComponent(sc.source_event_id)}" alt="過去事例の現場写真">` : '') +
     `</div>` : '';
+  const rt = d.routing;
+  const route = rt && rt.primary ? `<div class="ev" style="margin-top:8px">👥 この設備の担当: ${esc(rt.primary)}` +
+    (rt.notified ? ' に通知済み' : '') +
+    (rt.tier2 ? `。応答がなければ${rt.tier2_min}分後に ${esc(rt.tier2)} へ連絡します` : '') + `。</div>` : '';
   $('#main').innerHTML =
     `<div style="color:var(--muted);font-size:13px;margin-bottom:6px">🏭 組立ライン1（整列・供給工程）${at?'｜'+at+' 発生':''}</div>` +
     `<div class="cause">${(rca.cause_candidates||['推定中']).slice(0,2).join('、')}</div>` +
     `<div>確信度 <span class="conf">${Math.round(conf*100)}%</span>` +
     `｜検知: ${kinds[d.event.kind]||d.event.kind} ${Math.round(d.event.peak_magnitude)}px</div>` +
     `<div class="ev">${(rca.evidence||[]).slice(0,3).map(e=>'• '+e).join('\n')}</div>` +
-    sim +
+    route + sim +
     (d.escalation_notes?.length ? `<div class="esc">${d.escalation_notes.at(-1)}</div>` : '') +
     `<img class="frame" src="/frame/${eid}" onerror="this.remove()">`;
   if(d.ack) showAck(d.ack);
@@ -125,7 +129,7 @@ async function load(){
 function showAck(a){
   const who = (a && (a.actor_name || a.actor_id)) || '';
   $('#b-ack').disabled = true;
-  $('#b-ack').textContent = `🔧 対応中: ${who}`;
+  $('#b-ack').textContent = `👋 ${who} さんが対応します`;
 }
 
 $('#b-ack').onclick = async () => {

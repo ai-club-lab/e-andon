@@ -136,11 +136,12 @@ class EscalationEngine:
         # mark first — a sink error must not re-fire the tier forever
         await asyncio.to_thread(_mark, eid, tier, "fired", now)
         if tier == 2:
-            text = (f"⏱ 一次担当から{ESCALATION.tier2_delay_s // 60}分応答がありません。"
-                    f"{row.get('target_mention') or ''} 対応をお願いします。")
+            text = (f"⏱ {ESCALATION.tier2_delay_s // 60}分たっても応答がないため、"
+                    f"{row.get('target_mention') or ''} に連絡します。"
+                    f"対応できる方はカードの「👋 私が対応します」を押してください。")
         else:  # tier 3: present the outside contact, never auto-page (Req 6.3)
-            text = (f"⏱ 応答がないため、外部窓口の連絡先を提示します: "
-                    f"{row.get('contact_note') or ''}（自動発報はしません）")
+            text = (f"⏱ まだ応答がないため、外部保守窓口の連絡先をご案内します: "
+                    f"{row.get('contact_note') or ''}（自動では発報しません）")
             self._on_notice(eid, text)
         rec = await asyncio.to_thread(notif_store.get, eid)
         if rec is not None:

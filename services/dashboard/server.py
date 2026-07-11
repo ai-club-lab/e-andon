@@ -137,14 +137,18 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
     # 前回の対処を人にも見せる（初動短縮）— the same store the agent reads
     rec = state.events.get(ev.event_id) or {"event": ev.model_dump()}
     similar = await asyncio.to_thread(_similar_case, rec)
-    await notifs.put({"event_id": ev.event_id, "text": text, "similar_case": similar})
+    # 「この設備の担当は誰々」— resolve once, tell both surfaces by name
+    decision = await asyncio.to_thread(_resolve_routing, ev.event_id, rca_d)
+    await notifs.put({"event_id": ev.event_id, "text": text,
+                      "similar_case": similar, "routing": _routing_info(decision)})
     # Push the same material to the notification sink (Slack card, Req 1.2).
     # SSE always goes first; the card needs the RCA (fires only when present).
     if rca_d and state.sink.enabled():
-        asyncio.create_task(_post_card(ev, rca_d, similar))
+        asyncio.create_task(_post_card(ev, rca_d, similar, decision))
 
 
-async def _post_card(ev: AnomalyEvent, rca_d: dict, similar: dict | None = None) -> None:
+async def _post_card(ev: AnomalyEvent, rca_d: dict, similar: dict | None = None,
+                     decision: "routing.RoutingDecision | None" = None) -> None:
     # alert-fatigue suppression: event ids are unique per playthrough, so the
     # throttle keys on the anomaly signature — one card per signature per
     # window, no Slack spam from every viewer of the public demo (deterministic)
@@ -155,9 +159,9 @@ async def _post_card(ev: AnomalyEvent, rca_d: dict, similar: dict | None = None)
                     extra={"ctx": {"event_id": ev.event_id, "signature": sig}})
         return
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
-    # keyword rescue here too: DB-restored rca_cache rows predate the fallback
-    cat = categorize(rca.category, *rca.cause_candidates)
-    decision = await asyncio.to_thread(routing.resolve, ev.event_id, cat)
+    if decision is None:  # keyword rescue: restored rca_cache rows predate the fallback
+        cat = categorize(rca.category, *rca.cause_candidates)
+        decision = await asyncio.to_thread(routing.resolve, ev.event_id, cat)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
     # embed the annotated anomaly frame (red box) in the card — but only once
     # it's actually in GCS, so Slack never fetches a missing image (Req 1: image
@@ -408,6 +412,26 @@ def _situation_key(ev: dict) -> str:
                                     ev.get("started_ts"), ev.get("ended_ts"))
 
 
+def _resolve_routing(event_id: str, rca_d: dict | None):
+    """Duty-roster resolution with the read-time category rescue applied."""
+    if not rca_d:
+        return None
+    cat = categorize(rca_d.get("category"), *(rca_d.get("cause_candidates") or []))
+    return routing.resolve(event_id, cat)
+
+
+def _routing_info(decision) -> dict | None:
+    """The 「この設備の担当は誰々→通知しました」 material for the UI surfaces."""
+    if decision is None:
+        return None
+    tier2 = next((s for s in decision.escalation_plan
+                  if s.tier == 2 and s.target_mention), None)
+    return {"primary": decision.primary_mention,
+            "tier2": tier2.target_mention if tier2 else None,
+            "tier2_min": (tier2.delay_s // 60) if tier2 else None,
+            "notified": state.sink.enabled()}
+
+
 def _similar_case(rec: dict) -> dict | None:
     """Nearest past case, surfaced to the HUMAN (not just the agent): the
     maintenance staff's first question on arrival is 「前はどう直した？」.
@@ -513,7 +537,7 @@ def _record_ack(event_id: str, actor: Actor) -> dict:
         nrec = await asyncio.to_thread(notif_store.get, event_id)
         if nrec is not None:
             await state.sink.post_thread(
-                nrec, f"🔧 {who} が対応中です（エスカレーションを停止しました）")
+                nrec, f"👋 {who} さんが対応します — 以降の自動連絡は止めました")
     try:
         asyncio.get_running_loop().create_task(_side())
     except RuntimeError:  # sync caller (tests)
@@ -873,6 +897,8 @@ async def api_event(event_id: str) -> dict:
                      "actor_name": v.get("actor_name"), "at": v.get("ts")} if v else None),
         "ack": await asyncio.to_thread(ack_store.get, event_id),
         "similar_case": await asyncio.to_thread(_similar_case, rec),
+        "routing": _routing_info(await asyncio.to_thread(
+            _resolve_routing, event_id, rec.get("rca"))),
         "escalation_notes": rec.get("escalation_notes", []),
         "suggestions": _cause_suggestions(rec["event"]["kind"]),
     }
