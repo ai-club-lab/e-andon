@@ -416,13 +416,19 @@ def _similar_case(rec: dict) -> dict | None:
     a notification."""
     try:
         ev = rec["event"]
-        for c in pc.search(_situation_key(ev), k=3):
-            if c.source_event_id != ev["event_id"] and c.correct_cause:
-                return {"cause": c.correct_cause,
-                        "action_taken": c.action_taken,
-                        "verdict": c.verdict,
-                        "photo": bool(c.attachment_uri),
-                        "source_event_id": c.source_event_id}
+        hits = [c for c in pc.search(_situation_key(ev), k=5)
+                if c.source_event_id != ev["event_id"] and c.correct_cause]
+        # cosine ties are common (recurrences share the quantized key) —
+        # among equals, a field photo then a recorded action helps most
+        hits.sort(key=lambda c: (bool(c.attachment_uri), bool(c.action_taken)),
+                  reverse=True)
+        if hits:
+            c = hits[0]
+            return {"cause": c.correct_cause,
+                    "action_taken": c.action_taken,
+                    "verdict": c.verdict,
+                    "photo": bool(c.attachment_uri),
+                    "source_event_id": c.source_event_id}
     except Exception:
         logger.warning("similar-case lookup failed", exc_info=True)
     return None

@@ -419,3 +419,18 @@ def test_should_refuse_record_correction_without_active_session(client) -> None:
         assert tools.record_correction("x")["recorded"] is False       # cause too short
     finally:
         tools._active_correction.reset(tok)
+
+
+def test_should_prefer_photo_case_among_cosine_ties(client, monkeypatch) -> None:
+    """Recurrences share the quantized situation key, so cosine ties are the
+    norm — among equals the case with a field photo (then a recorded action)
+    is the most useful to the responder."""
+    from chokotei_shared import FeedbackCase
+    _seed_event()
+    monkeypatch.setattr(server.pc, "search", lambda q, k=3: [
+        FeedbackCase(summary="s", correct_cause="治具ガタ", source_event_id="evt-a"),
+        FeedbackCase(summary="s", correct_cause="ボルト緩み", source_event_id="evt-b",
+                     action_taken="増し締め", attachment_uri="gs://b/x.jpg")])
+    d = client.get("/api/event/evt-ui-1").json()
+    assert d["similar_case"]["cause"] == "ボルト緩み"
+    assert d["similar_case"]["photo"] is True
