@@ -89,9 +89,10 @@ def test_post_card_carries_adjudication_material(clean_store) -> None:
     assert "搬送ガイドレール固定ボルトの緩み" in blob
     assert "85%" in blob
     assert "<@U_MAINT>" in blob
-    assert "https://example.run.app/e/evt-s1" in blob
     assert "verdict_correct" in blob and "verdict_wrong" in blob
     assert "evt-s1" in blob  # button value = event_id
+    # no "open detail" button — the whole flow stays in Slack
+    assert "open_detail" not in blob
 
 
 def test_post_card_embeds_anomaly_frame_image(clean_store) -> None:

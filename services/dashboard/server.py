@@ -648,7 +648,10 @@ async def _slack_on_wrong(event_id: str, actor: Actor) -> None:
         await state.sink.post_thread(nrec, "訂正対話を開始できませんでした。少し待って再度お試しください。")
         return
     state.engine.touch_correction(event_id)  # 30-min timeout watch (Req 3.5)
-    await state.sink.post_thread(nrec, result["reply"])
+    # everything happens in Slack: reply with the cause, and drop a photo of the
+    # actual spot right into this thread if you have one (Req 9 via thread intake)
+    hint = "\n（原因が分かる写真があれば、この返信にそのまま添付してください）"
+    await state.sink.post_thread(nrec, result["reply"] + hint)
 
 
 async def _slack_on_message(event: dict) -> None:

@@ -68,10 +68,9 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
              "value": ev.event_id},
         ]},
     ]
-    if deep_link:
-        blocks[-1]["elements"].append(
-            {"type": "button", "action_id": "open_detail",
-             "text": {"type": "plain_text", "text": "📱 スマホで写真添付"}, "url": deep_link})
+    # NB: no "open detail" button — the operator never leaves Slack. The frame
+    # is embedded below, adjudication is the two buttons, and a photo can be
+    # dropped straight into the correction thread (deep_link kept for callers).
     if frame_url:  # image-based detection: show the annotated frame in-card
         blocks.insert(2, {"type": "image", "image_url": frame_url,
                           "alt_text": "検知フレーム（赤枠=整列異常）"})
