@@ -239,7 +239,10 @@ def _photo_evidence(event: AnomalyEvent) -> list[types.Part]:
         import attachments_store
         import past_cases as pc
 
-        hits = pc.search(f"{event.kind} 整列異常 センサー正常")
+        # wider net than the agent's own few-shot search (k=8): text-only
+        # corrections cluster at the top, but we specifically want the nearest
+        # case that carries a photo — still exactly one image attached
+        hits = pc.search(f"{event.kind} 整列異常 センサー正常", k=8)
         top = next((c for c in hits if c.attachment_uri), None)
         if top is None or not top.attachment_uri:
             return []
