@@ -101,6 +101,26 @@ def test_correction_commit_links_attachment_to_past_case(client, monkeypatch) ->
     assert attachments_store.get_bytes(added[0].attachment_uri) == JPG
 
 
+def test_photo_evidence_picks_first_case_with_photo(monkeypatch) -> None:
+    """Req 9.3: at most ONE image — the closest case that has a photo, even
+    when a photo-less case ranks above it."""
+    import rca_agent
+    from chokotei_shared import AnomalyEvent, FeedbackCase
+    uri = attachments_store.save_pending("evt-photo", JPG, "image/jpeg")
+    import past_cases as pc
+    monkeypatch.setattr(pc, "search", lambda q, k=3: [
+        FeedbackCase(summary="s1", correct_cause="c1", source_event_id="e1"),
+        FeedbackCase(summary="s2", correct_cause="ボルト緩み", source_event_id="e2",
+                     attachment_uri=uri),
+    ])
+    parts = rca_agent._photo_evidence(AnomalyEvent(
+        event_id="x", started_ts=1.0, kind="offset", peak_magnitude=16.0,
+        rep_frame_uri="", status="open"))
+    assert len(parts) == 2, "one text note + exactly one image part"
+    assert "ボルト緩み" in (parts[0].text or "")
+    assert parts[1].inline_data is not None
+
+
 def test_correction_without_photo_still_completes(client, monkeypatch) -> None:
     """Req 9.4: the photo is optional — no attachment, same flow."""
     _seed_event()

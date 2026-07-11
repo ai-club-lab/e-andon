@@ -232,15 +232,15 @@ def _extract_json(text: str) -> dict | None:
 
 
 def _photo_evidence(event: AnomalyEvent) -> list[types.Part]:
-    """Multimodal reflux (human-loop Req 9.3): when the closest past case has a
-    field photo, attach ONLY that one to the prompt (top-1 — context/cost cap).
-    Never breaks inference: any failure returns no parts."""
+    """Multimodal reflux (human-loop Req 9.3): among the closest past cases,
+    attach the FIRST one that carries a field photo — always at most one image
+    (context/cost cap). Never breaks inference: any failure returns no parts."""
     try:
         import attachments_store
         import past_cases as pc
 
         hits = pc.search(f"{event.kind} 整列異常 センサー正常")
-        top = hits[0] if hits else None
+        top = next((c for c in hits if c.attachment_uri), None)
         if top is None or not top.attachment_uri:
             return []
         data = attachments_store.get_bytes(top.attachment_uri)
