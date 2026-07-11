@@ -124,9 +124,21 @@ class SlackSink:
                                     channel=kwargs["channel"])
             return await asyncio.to_thread(self._client.chat_postMessage, **kwargs)
 
+    def _is_stale(self, rec: NotificationRecord) -> bool:
+        """A record whose channel isn't our configured one belongs to a
+        decommissioned workspace (e.g. after a migration) — its card can't be
+        threaded/updated here. Skip quietly rather than alarm the operator."""
+        if rec.channel_id != self._channel:
+            logger.info("skipping notification from another channel/workspace",
+                        extra={"ctx": {"event_id": rec.event_id,
+                                       "rec_channel": rec.channel_id,
+                                       "cur_channel": self._channel}})
+            return True
+        return False
+
     async def update_card(self, rec: NotificationRecord, verdict: str,
                           actor: Actor) -> None:
-        if not self.enabled():
+        if not self.enabled() or self._is_stale(rec):
             return
         who = actor.display_name or actor.user_id
         label = "✅ 正しい" if verdict == "correct" else "❌ 違う（訂正あり）"
@@ -138,22 +150,36 @@ class SlackSink:
                 blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": (
                     f"*裁定済み* {label} — {who}（{when}）\n"
                     f"経緯はこのスレッドを参照。")}}])
-        except Exception:
+        except Exception as e:
+            if self._stale_channel_error(e):
+                return
             logger.exception("Slack card update failed",
                              extra={"ctx": {"event_id": rec.event_id}})
             self._on_error("Slackカードの更新に失敗しました")
 
     async def post_thread(self, rec: NotificationRecord, text: str) -> None:
-        if not self.enabled():
+        if not self.enabled() or self._is_stale(rec):
             return
         try:
             await asyncio.to_thread(
                 self._client.chat_postMessage, channel=rec.channel_id,
                 thread_ts=rec.message_ts, text=text)
-        except Exception:
+        except Exception as e:
+            if self._stale_channel_error(e):
+                return  # decommissioned channel — stale record, not a live failure
             logger.exception("Slack thread post failed",
                              extra={"ctx": {"event_id": rec.event_id}})
             self._on_error("Slackスレッドへの投稿に失敗しました")
+
+    @staticmethod
+    def _stale_channel_error(e: Exception) -> bool:
+        """channel_not_found = the target channel doesn't exist for this token
+        (a migrated/decommissioned workspace). Log, but never a user banner."""
+        err = getattr(getattr(e, "response", None), "get", lambda _k: None)("error")
+        if err == "channel_not_found":
+            logger.warning("thread target channel not found (stale record); skipping")
+            return True
+        return False
 
 
 def default_sink(on_error: Callable[[str], None] | None = None) -> NotificationSink:

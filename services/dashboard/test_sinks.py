@@ -24,6 +24,7 @@ from chokotei_shared import (  # noqa: E402
     Actor,
     AnomalyEvent,
     EscalationStep,
+    NotificationRecord,
     RcaResult,
     RoutingDecision,
 )
@@ -139,6 +140,44 @@ def test_post_card_joins_channel_on_first_post(clean_store) -> None:
     rec = asyncio.run(s.post_card(_event(), _rca(), _routing(), ""))
     assert fake.joined == ["C1"]
     assert rec is not None and len(fake.posts) == 1
+
+
+def test_post_thread_skips_records_from_another_workspace(clean_store) -> None:
+    """After a workspace migration, stale notification/escalation records point
+    at a decommissioned channel — skip them silently, don't alarm the operator."""
+    errors: list[str] = []
+    posts: list[dict] = []
+
+    class Client:
+        def chat_postMessage(self, **kw):
+            posts.append(kw)
+            return {"ts": "1.0"}
+
+    s = sinks.SlackSink(client=Client(), channel_id="C_NEW", on_error=errors.append)
+    stale = NotificationRecord(event_id="e1", channel_id="C_OLD",
+                               message_ts="9.9", posted_at=1.0)
+    asyncio.run(s.post_thread(stale, "escalation text"))
+    assert posts == [] and errors == [], "no post, no banner for a foreign-channel record"
+    live = NotificationRecord(event_id="e2", channel_id="C_NEW",
+                              message_ts="9.9", posted_at=1.0)
+    asyncio.run(s.post_thread(live, "hello"))
+    assert len(posts) == 1 and errors == []
+
+
+def test_post_thread_channel_not_found_is_not_alarming(clean_store) -> None:
+    """channel_not_found is always a stale-record artifact — log, no banner."""
+    from slack_sdk.errors import SlackApiError
+    errors: list[str] = []
+
+    class Client:
+        def chat_postMessage(self, **kw):
+            raise SlackApiError("channel_not_found", {"error": "channel_not_found"})
+
+    s = sinks.SlackSink(client=Client(), channel_id="C_NEW", on_error=errors.append)
+    rec = NotificationRecord(event_id="e1", channel_id="C_NEW",
+                             message_ts="9.9", posted_at=1.0)
+    asyncio.run(s.post_thread(rec, "x"))
+    assert errors == [], "channel_not_found must not raise a user banner"
 
 
 def test_update_card_reflects_verdict_and_actor(clean_store) -> None:
