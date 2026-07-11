@@ -71,7 +71,7 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
     if deep_link:
         blocks[-1]["elements"].append(
             {"type": "button", "action_id": "open_detail",
-             "text": {"type": "plain_text", "text": "📱 詳細を開く"}, "url": deep_link})
+             "text": {"type": "plain_text", "text": "📱 スマホで写真添付"}, "url": deep_link})
     if frame_url:  # image-based detection: show the annotated frame in-card
         blocks.insert(2, {"type": "image", "image_url": frame_url,
                           "alt_text": "検知フレーム（赤枠=整列異常）"})
