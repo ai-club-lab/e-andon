@@ -94,6 +94,27 @@ def test_post_card_carries_adjudication_material(clean_store) -> None:
     assert "evt-s1" in blob  # button value = event_id
 
 
+def test_post_card_embeds_anomaly_frame_image(clean_store) -> None:
+    """Image-based detection: the annotated frame (red box) rides in the card
+    itself, so the misalignment is visible without opening the detail page."""
+    fake = FakeClient()
+    s = sinks.SlackSink(client=fake, channel_id="C1")
+    asyncio.run(s.post_card(_event(), _rca(), _routing(), "",
+                            frame_url="https://example.run.app/frame/evt-s1"))
+    blocks = fake.posts[0]["blocks"]
+    img = [b for b in blocks if b.get("type") == "image"]
+    assert len(img) == 1, "exactly one image block"
+    assert img[0]["image_url"] == "https://example.run.app/frame/evt-s1"
+    assert img[0].get("alt_text"), "image needs alt text"
+
+
+def test_post_card_omits_image_when_no_frame(clean_store) -> None:
+    fake = FakeClient()
+    s = sinks.SlackSink(client=fake, channel_id="C1")
+    asyncio.run(s.post_card(_event(), _rca(), _routing(), ""))  # no frame_url
+    assert not [b for b in fake.posts[0]["blocks"] if b.get("type") == "image"]
+
+
 def test_post_card_is_idempotent_per_event(clean_store) -> None:
     """Req 1.5: at most one card per event, across retries and restarts."""
     fake = FakeClient()

@@ -24,7 +24,7 @@ class NotificationSink(Protocol):
 
     async def post_card(self, ev: AnomalyEvent, rca: RcaResult,
                         routing: RoutingDecision | None,
-                        deep_link: str) -> NotificationRecord | None: ...
+                        deep_link: str, frame_url: str = "") -> NotificationRecord | None: ...
 
     async def update_card(self, rec: NotificationRecord, verdict: str,
                           actor: Actor) -> None: ...
@@ -38,7 +38,7 @@ class NullSink:
     def enabled(self) -> bool:
         return False
 
-    async def post_card(self, ev, rca, routing, deep_link):
+    async def post_card(self, ev, rca, routing, deep_link, frame_url=""):
         return None
 
     async def update_card(self, rec, verdict, actor):
@@ -49,7 +49,8 @@ class NullSink:
 
 
 def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
-                 routing: RoutingDecision | None, deep_link: str) -> list[dict]:
+                 routing: RoutingDecision | None, deep_link: str,
+                 frame_url: str = "") -> list[dict]:
     conf = min(rca.confidence, 0.95)  # same deterministic cap as the dashboard
     cause = "、".join(rca.cause_candidates[:2])
     evidence = "\n".join(f"• {e}" for e in rca.evidence[:3])
@@ -71,6 +72,9 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
         blocks[-1]["elements"].append(
             {"type": "button", "action_id": "open_detail",
              "text": {"type": "plain_text", "text": "📱 詳細を開く"}, "url": deep_link})
+    if frame_url:  # image-based detection: show the annotated frame in-card
+        blocks.insert(2, {"type": "image", "image_url": frame_url,
+                          "alt_text": "検知フレーム（赤枠=整列異常）"})
     return blocks
 
 
@@ -91,7 +95,7 @@ class SlackSink:
 
     async def post_card(self, ev: AnomalyEvent, rca: RcaResult,
                         routing: RoutingDecision | None,
-                        deep_link: str) -> NotificationRecord | None:
+                        deep_link: str, frame_url: str = "") -> NotificationRecord | None:
         if not self.enabled():
             return None
         existing = await asyncio.to_thread(notif_store.get, ev.event_id)
@@ -101,7 +105,7 @@ class SlackSink:
         try:
             resp = await self._post_joining(
                 channel=self._channel, text=summary,
-                blocks=_card_blocks(ev, rca, routing, deep_link))
+                blocks=_card_blocks(ev, rca, routing, deep_link, frame_url))
         except Exception as e:  # Req 1.4 — loud, never silent
             logger.exception("Slack post failed", extra={"ctx": {"event_id": ev.event_id}})
             self._on_error(f"Slack通知の送信に失敗しました（{type(e).__name__}）")

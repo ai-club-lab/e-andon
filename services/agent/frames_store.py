@@ -44,3 +44,11 @@ def get_frame_bytes(event_id: str) -> bytes | None:
     if not blob.exists():
         return None
     return blob.download_as_bytes()
+
+
+def exists(event_id: str) -> bool:
+    """Cheap presence check (metadata only) — gate the Slack image block so
+    Slack never fetches a not-yet-uploaded frame (would render broken)."""
+    if not enabled():
+        return False
+    return _bucket().blob(f"frames/{event_id}.jpg").exists()

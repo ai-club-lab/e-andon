@@ -151,7 +151,13 @@ async def _post_card(ev: AnomalyEvent, rca_d: dict) -> None:
     rca = RcaResult(**{**rca_d, "event_id": ev.event_id})
     decision = await asyncio.to_thread(routing.resolve, ev.event_id, rca.category)
     deep_link = f"{SLACK.base_url}/e/{ev.event_id}" if SLACK.base_url else ""
-    rec = await state.sink.post_card(ev, rca, decision, deep_link)
+    # embed the annotated anomaly frame (red box) in the card — but only once
+    # it's actually in GCS, so Slack never fetches a missing image (Req 1: image
+    # detection -> show the evidence in Slack, not just behind the detail link)
+    frame_url = ""
+    if SLACK.base_url and await asyncio.to_thread(frames_store.exists, ev.event_id):
+        frame_url = f"{SLACK.base_url}/frame/{ev.event_id}"
+    rec = await state.sink.post_card(ev, rca, decision, deep_link, frame_url)
     if rec is not None:  # timers only when the card actually went out (Req 6.1)
         state.notif_sig_ts[sig] = now
         await state.engine.schedule(decision)

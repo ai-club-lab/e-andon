@@ -245,7 +245,7 @@ def test_notification_throttled_per_signature(client, monkeypatch) -> None:
         def enabled(self) -> bool:
             return True
 
-        async def post_card(self, ev, rca, routing, deep_link):
+        async def post_card(self, ev, rca, routing, deep_link, frame_url=""):
             posted.append(ev.event_id)
             from chokotei_shared import NotificationRecord
             return NotificationRecord(event_id=ev.event_id, channel_id="C1",
