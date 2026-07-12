@@ -56,3 +56,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the same image Cloud Run runs
         run: docker build -t chokotei-dashboard:${{ github.sha }} .
+
+  # Failure-only ping to #github-feed (Discord). Green runs stay silent to keep the
+  # channel lean; a broken test/build surfaces once. Secret = DISCORD_WEBHOOK_URL.
+  notify:
+    name: Notify on CI failure
+    needs: [test, build]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord (CI failed)
+        continue-on-error: true
+        run: |
+          curl -fsS -H "Content-Type: application/json" -X POST \
+            -d "{\"content\":\"❌ CI **failed** on \`${GITHUB_REF_NAME}\` — \`${GITHUB_SHA:0:7}\` (${GITHUB_EVENT_NAME})\"}" \
+            "${{ secrets.DISCORD_WEBHOOK_URL }}"
