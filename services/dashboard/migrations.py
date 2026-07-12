@@ -48,6 +48,10 @@ _DDL = [
         actor_id      TEXT NOT NULL,
         actor_name    TEXT,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now())""",
+    # 復旧クローズ（flow phase 5）: 停止時間の実測を対応記録の第2フェーズとして持つ
+    "ALTER TABLE acks ADD COLUMN IF NOT EXISTS recovered_at TIMESTAMPTZ",
+    "ALTER TABLE acks ADD COLUMN IF NOT EXISTS recovered_by TEXT",
+    "ALTER TABLE acks ADD COLUMN IF NOT EXISTS stop_seconds DOUBLE PRECISION",
     """INSERT INTO routing_rules (category, primary_mention, tier2_mention, tier3_contact) VALUES
         ('positioning', '保全・高橋さん（位置決め担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
         ('conveyance',  '保全・佐藤さん（搬送担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),

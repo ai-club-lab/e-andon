@@ -32,7 +32,8 @@ _handlers: dict[str, Callable[..., Any]] = {}
 def configure(record_verdict: Callable[[str, str, Actor], dict],
               on_wrong: Callable[[str, Actor], Awaitable[None]] | None = None,
               on_message: Callable[[dict], Awaitable[None]] | None = None,
-              record_ack: Callable[[str, Actor], dict] | None = None) -> None:
+              record_ack: Callable[[str, Actor], dict] | None = None,
+              record_recovery: Callable[[str, Actor], dict] | None = None) -> None:
     """Inject the server-side handlers (avoids a circular import)."""
     _handlers["record_verdict"] = record_verdict
     if on_wrong:
@@ -41,6 +42,8 @@ def configure(record_verdict: Callable[[str, str, Actor], dict],
         _handlers["on_message"] = on_message
     if record_ack:
         _handlers["record_ack"] = record_ack
+    if record_recovery:
+        _handlers["record_recovery"] = record_recovery
 
 
 def _guard(request: Request, body: bytes) -> Response | None:
@@ -112,4 +115,11 @@ async def slack_interactivity(request: Request) -> Any:
                 logger.info("slack ack", extra={"ctx": {
                     "event_id": event_id, "actor": actor.user_id,
                     "already": out.get("already_acked", False)}})
+        elif action.get("action_id") == "recover":
+            record_recovery = _handlers.get("record_recovery")
+            if record_recovery:
+                out = record_recovery(event_id, actor)
+                logger.info("slack recovery", extra={"ctx": {
+                    "event_id": event_id, "actor": actor.user_id,
+                    "already": out.get("already_recovered", False)}})
     return {"ok": True}

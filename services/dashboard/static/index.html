@@ -52,6 +52,21 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
 .menu-item:hover{background:var(--bg);color:var(--ink)}
 .menu-item:disabled{opacity:.45;cursor:not-allowed}
 .menu-item:disabled:hover{background:none;color:var(--muted)}
+.menu-item.on{background:var(--brand-soft);color:var(--brand);font-weight:600}
+/* ---- analytics (in-shell view, light) ---- */
+.aseg{margin-left:auto;display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.aseg button{border:0;background:var(--card);color:var(--muted);padding:5px 14px;cursor:pointer;font-size:12.5px}
+.aseg button.on{background:var(--brand);color:#fff}
+.apad{padding:14px}
+.aempty{color:var(--muted);text-align:center;padding:12px;font-size:13px}
+.recal{border-left:3px solid var(--warn);background:#fff6e6;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px}
+.atable{width:100%;border-collapse:collapse;font-size:12.5px}
+.atable td,.atable th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.atable th{color:var(--muted);font-weight:600;font-size:11.5px}
+.atable a{color:var(--brand);text-decoration:none}
+svg.achart{width:100%;height:auto;display:block}
+svg.achart text{fill:var(--muted);font-size:11px}
+.abar{fill:#a5aaf5;cursor:pointer}.abar:hover{fill:var(--brand)}
 .menu-soon{margin-left:auto;font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 5px}
 /* center (scrolls) */
 .center{flex:1;overflow-y:auto;min-width:0;padding:18px 22px}
@@ -191,7 +206,7 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
     <div class="side-h">生産ライン</div>
     <div id="lines"></div>
     <div class="side-h" style="margin-top:16px">メニュー</div>
-    <button class="menu-item" onclick="location.href='/analytics'" title="パレート図・再発検知・AI正答率">📊 分析・履歴</button>
+    <button class="menu-item" id="mi-analytics" onclick="selectView('analytics')" title="パレート図・再発検知・AI正答率・学習データの由来">📊 分析・履歴</button>
     <button class="menu-item" disabled title="このデモでは対象外です">⚙ 設定<span class="menu-soon">準備中</span></button>
   </aside>
 
@@ -266,10 +281,14 @@ function setGlobalStatus(){
 }
 
 // ---- sidebar ----
+let activeView='line';
+function selectView(v){ activeView=v; history.replaceState(null,'',v==='analytics'?'#analytics':location.pathname);
+  renderSidebar(); renderCenter(); }
 function renderSidebar(){
+  $('#mi-analytics').classList.toggle('on', activeView==='analytics');
   const box=$('#lines'); box.innerHTML='';
   for(const L of LINES){
-    const b=document.createElement('button'); b.className='line-item'+(L.id===activeLine?' on':''); b.dataset.id=L.id;
+    const b=document.createElement('button'); b.className='line-item'+(L.id===activeLine&&activeView==='line'?' on':''); b.dataset.id=L.id;
     const dotCls = L.live ? ('ld '+({running:'',warning:'warn',stopped:'alert',recovered:''}[lineStatus]||'')) : 'ld';
     b.innerHTML='<span class="'+dotCls.trim()+'" id="dot-'+L.id+'"></span>'+
       '<span class="lt"><b>'+L.name+'</b><span>'+L.area+'</span></span>'+
@@ -277,10 +296,12 @@ function renderSidebar(){
     b.onclick=()=>selectLine(L.id); box.appendChild(b);
   }
 }
-function selectLine(id){ activeLine=id; for(const k in liveBuf) delete liveBuf[k]; renderSidebar(); renderCenter(); }
+function selectLine(id){ activeLine=id; activeView='line'; history.replaceState(null,'',location.pathname);
+  for(const k in liveBuf) delete liveBuf[k]; renderSidebar(); renderCenter(); }
 
 // ---- center ----
 function renderCenter(){
+  if(activeView==='analytics'){ renderAnalytics(); return; }
   const L=LINES.find(x=>x.id===activeLine), c=$('#center'); c.innerHTML='';
   const title=document.createElement('div'); title.className='line-title';
   title.innerHTML='<h1>'+L.name+'</h1><span class="sub">'+L.area+'</span>';
@@ -475,6 +496,101 @@ function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',o
   // 物語を保つ（再稼働は物理ボタンの世界。もう一度見るには再読み込み）
   es.onerror=()=>{ if(lineStatus==='stopped'){ es.close();
     addMsg('bot','📼 この収録の再生は終了しました。もう一度見るにはページを再読み込みしてください。'); } };
+}
+
+// ---- analytics view (in-shell, light theme — same shell/sidebar as monitoring) ----
+let aDays=7;
+function renderAnalytics(){
+  const c=$('#center'); c.innerHTML='';
+  c.insertAdjacentHTML('beforeend', `
+    <div class="line-title"><h1>分析・履歴</h1><span class="sub">チョコ停の構造とAIの学習</span>
+      <div class="aseg" id="aseg">
+        <button data-d="7" class="${aDays===7?'on':''}">7日</button>
+        <button data-d="30" class="${aDays===30?'on':''}">30日</button></div></div>
+    <div class="sect"><div class="sect-h">⚠ 再発アラート <span class="note">同一真因の頻発を能動検知</span></div>
+      <div class="card apad" id="a-rec"><div class="aempty">読み込み中…</div></div></div>
+    <div class="sect"><div class="sect-h">チョコ停パレート <span class="note">真因カテゴリ別 停止回数 × 累計損失（分）・棒をクリックでイベント一覧</span></div>
+      <div class="card apad" id="a-pareto"><div class="aempty">読み込み中…</div></div></div>
+    <div class="sect" id="a-drill-sect" style="display:none"><div class="sect-h" id="a-drill-t">イベント一覧</div>
+      <div class="card apad" id="a-drill"></div></div>
+    <div class="sect"><div class="sect-h">AI 正答率の推移 <span class="note">人の裁定に基づく</span></div>
+      <div class="card apad" id="a-acc"><div class="aempty">読み込み中…</div></div></div>
+    <div class="sect"><div class="sect-h">📚 学習データの蓄積 <span class="note">誰が・いつ・どの面で・何を教えたか — ❌の行は事例化され次回の推論に還流</span></div>
+      <div class="card apad" id="a-cases"><div class="aempty">読み込み中…</div></div></div>`);
+  $('#aseg').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; aDays=+b.dataset.d;
+    document.querySelectorAll('#aseg button').forEach(x=>x.classList.toggle('on',x===b)); loadAnalytics(); };
+  loadAnalytics();
+}
+async function loadAnalytics(){
+  try{
+    const [p,a,r,cs]=await Promise.all([
+      fetch('/analytics/pareto?days='+aDays).then(r=>r.json()),
+      fetch('/analytics/accuracy?days='+Math.max(aDays,30)).then(r=>r.json()),
+      fetch('/analytics/recurrence?days='+aDays).then(r=>r.json()),
+      fetch('/analytics/cases').then(r=>r.json())]);
+    if(activeView!=='analytics') return;   // 切り替え済みなら描かない
+    $('#a-rec').innerHTML=r.alerts.length
+      ? r.alerts.map(al=>'<div class="recal"><b>'+escH(al.label)+'</b> — '+escH(al.suggestion)+'</div>').join('')
+      : '<div class="aempty">再発の兆候はありません（'+aDays+'日窓・閾値'+r.threshold+'回）</div>';
+    $('#a-pareto').innerHTML=aParetoSvg(p);
+    $('#a-acc').innerHTML=aAccSvg(a);
+    $('#a-cases').innerHTML=aCasesTable(cs);
+  }catch(e){}
+}
+function aParetoSvg(d){
+  if(d.empty) return '<div class="aempty">この期間のデータはありません</div>';
+  const W=860,H=250,P=40,bw=Math.min(110,(W-2*P)/d.buckets.length*0.6);
+  const maxC=Math.max(...d.buckets.map(b=>b.count));
+  const x=i=>P+(W-2*P)*(i+0.5)/d.buckets.length, y=c=>H-30-(H-70)*c/maxC, yr=r=>H-30-(H-70)*r;
+  let s='<svg class="achart" viewBox="0 0 '+W+' '+H+'" role="img">';
+  d.buckets.forEach((b,i)=>{
+    s+='<rect class="abar" x="'+(x(i)-bw/2)+'" y="'+y(b.count)+'" width="'+bw+'" height="'+(H-30-y(b.count))+'"'+
+       ' onclick="aDrill(\''+b.category+'\',\''+escH(b.label)+'\')"><title>'+escH(b.label)+': '+b.count+'回 / '+b.loss_minutes+'分</title></rect>';
+    s+='<text x="'+x(i)+'" y="'+(H-14)+'" text-anchor="middle">'+escH(b.label)+'</text>';
+    s+='<text x="'+x(i)+'" y="'+(y(b.count)-6)+'" text-anchor="middle">'+b.count+'回 / '+b.loss_minutes+'分</text>';
+  });
+  const pts=d.buckets.map((b,i)=>x(i)+','+yr(b.cum_ratio)).join(' ');
+  s+='<polyline points="'+pts+'" fill="none" stroke="#d9860a" stroke-width="2"/>';
+  d.buckets.forEach((b,i)=>{ s+='<circle cx="'+x(i)+'" cy="'+yr(b.cum_ratio)+'" r="3" fill="#d9860a"/>'+
+    '<text x="'+(x(i)+bw/2+6)+'" y="'+(yr(b.cum_ratio)+4)+'" fill="#d9860a">'+Math.round(b.cum_ratio*100)+'%</text>'; });
+  return s+'</svg>';
+}
+function aAccSvg(d){
+  if(d.empty) return '<div class="aempty">裁定データがまだありません</div>';
+  const W=860,H=170,P=40,n=d.points.length;
+  const x=i=>n===1?W/2:P+(W-2*P)*i/(n-1), y=r=>H-30-(H-60)*r;
+  let s='<svg class="achart" viewBox="0 0 '+W+' '+H+'">';
+  [0,0.5,1].forEach(r=>{ s+='<line x1="'+P+'" y1="'+y(r)+'" x2="'+(W-P)+'" y2="'+y(r)+'" stroke="#e7e9f0"/>'+
+    '<text x="6" y="'+(y(r)+4)+'">'+(r*100)+'%</text>'; });
+  s+='<polyline points="'+d.points.map((p,i)=>x(i)+','+y(p.correct_rate)).join(' ')+'" fill="none" stroke="#4f46e5" stroke-width="2"/>';
+  d.points.forEach((p,i)=>{ s+='<circle cx="'+x(i)+'" cy="'+y(p.correct_rate)+'" r="3" fill="#4f46e5">'+
+    '<title>'+p.date+': '+Math.round(p.correct_rate*100)+'% (n='+p.n+')</title></circle>'+
+    '<text x="'+x(i)+'" y="'+(H-10)+'" text-anchor="middle">'+p.date.slice(5)+'</text>'; });
+  return s+'</svg>';
+}
+function aCasesTable(d){
+  if(!d.rows.length) return '<div class="aempty">まだ裁定・訂正がありません</div>';
+  const fmt=t=>t?new Date(t*1000).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'–';
+  return '<div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">全'+d.total+'件（最新'+d.rows.length+'件）</div>'+
+    '<table class="atable"><tr><th>日時</th><th>裁定</th><th>誰が</th><th>面</th><th>教えた真因（訂正時）</th><th></th></tr>'+
+    d.rows.map(r=>'<tr><td>'+fmt(r.ts)+'</td>'+
+      '<td>'+(r.verdict==='correct'?'✅ 正しかった':'❌ 原因が違った')+'</td>'+
+      '<td>'+escH(r.actor_name||'現場の担当者')+'</td><td>'+escH(r.surface)+'</td>'+
+      '<td>'+(r.taught_cause?escH(r.taught_cause):'<span style="color:var(--muted)">—（AIの推定を承認）</span>')+'</td>'+
+      '<td><a href="/e/'+encodeURIComponent(r.event_id)+'" target="_blank">開く →</a></td></tr>').join('')+'</table>';
+}
+async function aDrill(cat,label){
+  const evs=await (await fetch('/events')).json();
+  const rows=evs.filter(e=>((e.rca&&e.rca.category)||'other')===cat);
+  $('#a-drill-t').textContent='イベント一覧 — '+label+'（'+rows.length+'件）';
+  $('#a-drill').innerHTML = rows.length
+    ? '<table class="atable"><tr><th>event</th><th>種別</th><th>ピーク</th><th>裁定</th><th></th></tr>'+
+      rows.map(e=>{const v=e.verdict, ev=e.event;
+        return '<tr><td>'+escH(ev.event_id)+'</td><td>'+escH(ev.kind)+'</td><td>'+Math.round(ev.peak_magnitude)+'px</td>'+
+        '<td>'+(v?(v.verdict==='correct'?'✅':'❌')+escH(v.actor_name||''):'未裁定')+'</td>'+
+        '<td><a href="/e/'+encodeURIComponent(ev.event_id)+'" target="_blank">開く →</a></td></tr>';}).join('')+'</table>'
+    : '<div class="aempty">該当イベントなし</div>';
+  const ds=$('#a-drill-sect'); ds.style.display='block'; ds.scrollIntoView({behavior:'smooth'});
 }
 
 // ---- alerts (AI agent, live line only) ----
@@ -683,6 +799,7 @@ async function send(){
 }
 
 // ---- boot ----
+if(location.hash==='#analytics') activeView='analytics';
 renderSidebar(); setGlobalStatus(); renderCenter(); connect(); renderChips();
 setInterval(redraw,500); refreshMetrics(); setInterval(refreshMetrics,5000);
 setInterval(updateStopClock,1000);

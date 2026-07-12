@@ -17,7 +17,7 @@ import time
 
 import cv2
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 
 import analytics
@@ -589,6 +589,59 @@ async def ack(req: Request) -> dict:
                              display_name=name or None))
 
 
+def _fmt_stop(seconds: float | None) -> str:
+    if seconds is None:
+        return "記録なし"
+    m, s = divmod(int(seconds), 60)
+    return f"{m}分{s:02d}秒" if m else f"{s}秒"
+
+
+def _record_recovery(event_id: str, actor: Actor) -> dict:
+    """✅ 復旧 — the single recovery write path (flow phase 5, all surfaces).
+
+    First confirmation wins. Closes the andon loop with the MEASURED stop
+    duration (detection → recovery); ack が無ければ対応者確定も兼ねる."""
+    rec = _event_rec(event_id)
+    if not rec:
+        return {"ok": False, "error": "invalid event_id"}
+    prior = ack_store.get(event_id)
+    if prior and prior.get("recovered_at"):
+        return {"ok": True, "already_recovered": True, "ack": prior}
+    created = (rec.get("event") or {}).get("created_at")
+    stop_s = max(0.0, time.time() - float(created)) if created else None
+    ack_store.save_recovery(event_id, actor, stop_s)
+    who = actor.display_name or "現場の担当者"
+    logger.info("recovery recorded", extra={"ctx": {
+        "event_id": event_id, "actor_surface": actor.surface,
+        "actor_id": actor.user_id, "stop_seconds": stop_s}})
+
+    async def _side() -> None:
+        await state.engine.cancel(event_id)   # recovery also stops later tiers
+        nrec = await asyncio.to_thread(notif_store.get, event_id)
+        if nrec is not None:
+            await state.sink.post_thread(
+                nrec, f"✅ {who} さんが復旧を確認しました — 停止時間 "
+                      f"{_fmt_stop(stop_s)}（検知から復旧まで）")
+    try:
+        asyncio.get_running_loop().create_task(_side())
+    except RuntimeError:  # sync caller (tests)
+        asyncio.run(_side())
+    return {"ok": True, "recovery": {"recovered_by": who, "stop_seconds": stop_s}}
+
+
+@app.post("/recover")
+async def recover(req: Request) -> dict:
+    """「復旧しました」— close the stop with a measured duration (Web/mobile)."""
+    if not _rate_ok(req):
+        return {"ok": False, "error": "rate limited"}
+    body = await req.json() or {}
+    user_id = re.sub(r"[^\w-]", "", str(body.get("user_id") or ""))[:40] or "line-op"
+    name = re.sub(r"[\x00-\x1f<>&\"']", "", str(body.get("display_name") or "")).strip()[:24]
+    return _record_recovery(body.get("event_id", ""),
+                            Actor(surface="dashboard", user_id=user_id,
+                                  display_name=name or None))
+
+
 def _after_verdict(event_id: str, verdict: str, actor: Actor) -> None:
     """Verdict side effects: stop escalations (Req 6.4) and reflect the result
     on the Slack card (Req 2.5). Best-effort — the verdict record is already
@@ -901,6 +954,7 @@ async def _slack_on_message(event: dict) -> None:
 
 app.include_router(slack_routes.router)
 slack_routes.configure(record_verdict=_record_verdict, record_ack=_record_ack,
+                       record_recovery=_record_recovery,
                        on_wrong=_slack_on_wrong, on_message=_slack_on_message)
 
 _STATIC = os.path.join(os.path.dirname(__file__), "static", "index.html")
@@ -917,11 +971,11 @@ def _all_events() -> list[dict]:
     return event_store.list_events() if db.enabled() else list(state.events.values())
 
 
-@app.get("/analytics", response_class=HTMLResponse)
-async def analytics_page() -> str:
-    with open(os.path.join(os.path.dirname(__file__), "static", "analytics.html"),
-              encoding="utf-8") as fh:
-        return fh.read()
+@app.get("/analytics")
+async def analytics_page() -> RedirectResponse:
+    """分析はダッシュボード内ビューに統合（同じシェル・白基調・サイドバー維持）。
+    旧URLはデモガイド等から残り得るためリダイレクトで生かす。"""
+    return RedirectResponse(url="/#analytics", status_code=307)
 
 
 @app.get("/analytics/pareto")
