@@ -125,13 +125,7 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
             break
         await asyncio.sleep(0.3)
     if rca_d:
-        cause = "、".join(rca_d["cause_candidates"][:2])
-        text = (f"⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。"
-                f"各機械センサー（速度・電流・振動・温度・エア圧）は正常のため、"
-                f"センサーに現れない位置決め機構側の問題と考えられます。"
-                # min(): rows restored from DB may predate the 0.95 cap in infer()
-                f"真因は「{cause}」と推定されます（確信度 {min(rca_d['confidence'], 0.95):.0%}）。"
-                f"根拠: {'; '.join(rca_d['evidence'][:2])}")
+        text = _stop_story(rca_d)
     else:
         text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
     # 前回の対処を人にも見せる（初動短縮）— the same store the agent reads
@@ -144,6 +138,40 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
     # Push the same material to the notification sink (Slack card, Req 1.2).
     # SSE always goes first; the card needs the RCA (fires only when present).
     if rca_d and state.sink.enabled():
+        asyncio.create_task(_post_card(ev, rca_d, similar, decision))
+    elif not rca_d:
+        # 推定が通知に間に合わない走行（訂正直後のキャッシュ無効化で再推論が
+        # 走るときなど）でも「推定中」のまま終わらせない — 完了し次第届ける
+        asyncio.create_task(_notify_when_rca_ready(ev, notifs))
+
+
+def _stop_story(rca_d: dict) -> str:
+    cause = "、".join(rca_d["cause_candidates"][:2])
+    return (f"⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。"
+            f"各機械センサー（速度・電流・振動・温度・エア圧）は正常のため、"
+            f"センサーに現れない位置決め機構側の問題と考えられます。"
+            # min(): rows restored from DB may predate the 0.95 cap in infer()
+            f"真因は「{cause}」と推定されます（確信度 {min(rca_d['confidence'], 0.95):.0%}）。"
+            f"根拠: {'; '.join(rca_d['evidence'][:2])}")
+
+
+async def _notify_when_rca_ready(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
+    """Late-RCA follow-up: deliver the full story once inference lands (≤3min)."""
+    rca_d = None
+    for _ in range(600):   # covers infer timeout+retry (90s×2) with margin
+        rca_d = state.events.get(ev.event_id, {}).get("rca")
+        if rca_d:
+            break
+        await asyncio.sleep(0.3)
+    if not rca_d:
+        return   # infer failed — the error path already logged it (Req 5.6)
+    rec = state.events.get(ev.event_id) or {"event": ev.model_dump()}
+    similar = await asyncio.to_thread(_similar_case, rec)
+    decision = await asyncio.to_thread(_resolve_routing, ev.event_id, rca_d)
+    await notifs.put({"event_id": ev.event_id,
+                      "text": "（真因の推定が完了しました）" + _stop_story(rca_d),
+                      "similar_case": similar, "routing": _routing_info(decision)})
+    if state.sink.enabled():
         asyncio.create_task(_post_card(ev, rca_d, similar, decision))
 
 
@@ -909,6 +937,25 @@ async def analytics_accuracy(days: int = 30) -> dict:
 @app.get("/analytics/recurrence")
 async def analytics_recurrence(days: int = 7) -> dict:
     return analytics.recurrence(_all_events(), feedback_store.load(), days)
+
+
+@app.get("/analytics/cases")
+async def analytics_cases(limit: int = 50) -> dict:
+    """学習データの由来 — 管理者が「何が・誰から・どの面で」蓄積されたかを見る。
+    ❌（訂正）の行は事例化され、次回同種異常の few-shot に還流している。"""
+    rows = await asyncio.to_thread(feedback_store.load)
+    out = []
+    for r in rows[-max(1, min(limit, 200)):][::-1]:   # newest first
+        out.append({
+            "ts": r.get("ts"), "event_id": r.get("event_id"),
+            "kind": r.get("kind"), "verdict": r.get("verdict"),
+            "taught_cause": r.get("human_cause") or None,
+            "actor_name": r.get("actor_name") or None,
+            "surface": ("Slack" if r.get("actor_surface") == "slack"
+                        else "モバイル" if str(r.get("actor_id") or "").startswith("mobile-")
+                        else "Web"),
+        })
+    return {"rows": out, "total": len(rows)}
 
 
 @app.get("/api/event/{event_id}")

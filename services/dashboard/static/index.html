@@ -432,8 +432,17 @@ async function redraw(){
 
 // ---- live stream (line A) ----
 let es=null;
+// SSE再接続でリプレイが先頭に巻き戻ったら、前回走行の描画バッファを捨てる
+// （切断時 EventSource は自動再接続し、サーバは新しい収録として再生を始める。
+//   捨てないと2走行分の点列が同じチャートに重なって「2重のグラフ」になる）
+function resetRun(){
+  hist.t.length=hist.offset.length=hist.angle.length=hist.gap.length=0;
+  for(const k in liveBuf) delete liveBuf[k];
+  stopSince=0;
+}
 function onFrame(e){
   const d=JSON.parse(e.data);
+  if(d.frame_index>=0 && typeof lastTs==='number' && d.ts < lastTs - 5) resetRun();
   lastImg=d.image; lastParts=d.n_parts; lastTs=d.ts;
   const flagged=d.flags && d.flags.length>0;
   lineStatus=d.line_status||'running';
@@ -461,7 +470,12 @@ function onFrame(e){
     document.body.appendChild(b);} b.textContent='⚠ '+d.sink_error; }
   else{ $('#sinkerr')?.remove(); }
 }
-function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',onFrame); }
+function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',onFrame);
+  // 停止後の切断（Cloud Run タイムアウト等）では再接続しない — チョコ停で終わる
+  // 物語を保つ（再稼働は物理ボタンの世界。もう一度見るには再読み込み）
+  es.onerror=()=>{ if(lineStatus==='stopped'){ es.close();
+    addMsg('bot','📼 この収録の再生は終了しました。もう一度見るにはページを再読み込みしてください。'); } };
+}
 
 // ---- alerts (AI agent, live line only) ----
 const shownSig=new Set(); let anomalyCount=0, anomalySeen=false;
@@ -489,7 +503,11 @@ async function addAlert(n){
   if(!anomalySeen) return;
   const evs=await (await fetch('/events')).json();
   const it=evs.find(e=>e.event && e.event.event_id===n.event_id);
-  if(!it || !it.rca) return;
+  if(!it || !it.rca){
+    // 推定がまだなら黙って捨てず、待ちを語る（完了時に後追いのカードが届く）
+    if(n.text) addMsg('bot', n.text);
+    return;
+  }
   const c=it.rca; const sig=it.event.kind+'|'+c.cause_candidates.join(',');
   if(shownSig.has(sig)) return; shownSig.add(sig); anomalyCount++;
   ensureFeed();

@@ -43,6 +43,7 @@
 <div class="card"><h2>チョコ停パレート — 真因カテゴリ別 停止回数 × 累計損失（分）</h2><div id="pareto"></div></div>
 <div class="card" id="drill"><h2 id="drill-t">イベント一覧</h2><div id="drill-b"></div></div>
 <div class="card"><h2>AI 正答率の推移（人の裁定に基づく）</h2><div id="acc"></div></div>
+<div class="card"><h2>📚 学習データの蓄積 — 誰が・いつ・何を教えたか</h2><div id="cases"></div></div>
 
 <script>
 let days = 7;
@@ -91,19 +92,34 @@ async function drill(cat,label){
   $('#drill-b').innerHTML = rows.length ? '<table><tr><th>event</th><th>種別</th><th>ピーク</th><th>裁定</th><th></th></tr>'+
     rows.map(e=>{const v=e.verdict; const ev=e.event;
       return `<tr><td>${esc(ev.event_id)}</td><td>${esc(ev.kind)}</td><td>${Math.round(ev.peak_magnitude)}px</td>
-      <td>${v?(v.verdict==='correct'?'✅':'❌')+(v.actor_name||v.actor_id||''):'未裁定'}</td>
+      <td>${v?(v.verdict==='correct'?'✅':'❌')+(v.actor_name||''):'未裁定'}</td>
       <td><a href="/e/${esc(ev.event_id)}">開く →</a></td></tr>`;}).join('')+'</table>'
     : '<div class="empty">該当イベントなし</div>';
   $('#drill').style.display='block'; $('#drill').scrollIntoView({behavior:'smooth'});
 }
 
+function casesTable(d){
+  if(!d.rows.length) return '<div class="empty">まだ裁定・訂正がありません</div>';
+  const fmt=t=>t?new Date(t*1000).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'–';
+  return `<div style="color:var(--muted);font-size:12px;margin-bottom:8px">全${d.total}件（最新${d.rows.length}件）
+    — ❌ の行は訂正が事例化され、次回同種異常の推論に few-shot として還流します</div>`+
+    '<table><tr><th>日時</th><th>裁定</th><th>誰が</th><th>面</th><th>教えた真因（訂正時）</th><th></th></tr>'+
+    d.rows.map(r=>`<tr><td>${fmt(r.ts)}</td>
+      <td>${r.verdict==='correct'?'✅ 正しかった':'❌ 原因が違った'}</td>
+      <td>${esc(r.actor_name||'現場の担当者')}</td><td>${esc(r.surface)}</td>
+      <td>${r.taught_cause?esc(r.taught_cause):'<span style="color:var(--muted)">—（AIの推定を承認）</span>'}</td>
+      <td><a href="/e/${esc(r.event_id)}">開く →</a></td></tr>`).join('')+'</table>';
+}
+
 async function load(){
-  const [p,a,r]=await Promise.all([
+  const [p,a,r,c]=await Promise.all([
     fetch('/analytics/pareto?days='+days).then(r=>r.json()),
     fetch('/analytics/accuracy?days='+Math.max(days,30)).then(r=>r.json()),
-    fetch('/analytics/recurrence?days='+days).then(r=>r.json())]);
+    fetch('/analytics/recurrence?days='+days).then(r=>r.json()),
+    fetch('/analytics/cases').then(r=>r.json())]);
   $('#pareto').innerHTML=paretoSvg(p);
   $('#acc').innerHTML=accSvg(a);
+  $('#cases').innerHTML=casesTable(c);
   $('#rec').innerHTML=r.alerts.length
     ? r.alerts.map(al=>`<div class="alert"><b>${esc(al.label)}</b> — ${esc(al.suggestion)}</div>`).join('')
     : '<div class="empty">再発の兆候はありません（'+days+'日窓・閾値'+r.threshold+'回）</div>';

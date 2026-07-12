@@ -277,6 +277,48 @@ def test_should_hide_anonymous_id_behind_generic_name(client, monkeypatch) -> No
     assert posted and "現場の担当者" in posted[0] and "op-x8f2" not in posted[0]
 
 
+def test_late_rca_followup_delivers_full_story(client) -> None:
+    """推定が通知に間に合わなかった走行でも、完了し次第カード素材が届く
+    （訂正直後のキャッシュ無効化→再推論が30秒かかるケースの救済）."""
+    import asyncio as aio
+    from chokotei_shared import AnomalyEvent
+    async def run():
+        ev = AnomalyEvent(event_id="evt-late-1", started_ts=8.5, ended_ts=9.5,
+                          kind="offset", peak_magnitude=16.0, rep_frame_uri="")
+        server.state.events["evt-late-1"] = {"event": ev.model_dump()}
+        notifs: aio.Queue = aio.Queue()
+        task = aio.create_task(server._notify_when_rca_ready(ev, notifs))
+        await aio.sleep(0.5)   # RCA lands after the story notification went out
+        server.state.events["evt-late-1"]["rca"] = {
+            "event_id": "evt-late-1", "cause_candidates": ["搬送ガイドレール固定ボルトの緩み"],
+            "confidence": 0.9, "evidence": ["過去事例と一致"], "category": "conveyance"}
+        await aio.wait_for(task, timeout=5)
+        return await notifs.get()
+    n = aio.run(run())
+    assert "推定が完了" in n["text"] and "ボルトの緩み" in n["text"]
+    assert n["routing"] and n["routing"]["primary"]   # 担当も後追いで名前つき
+
+
+def test_analytics_cases_shows_who_taught_what(client, monkeypatch) -> None:
+    """管理者ビュー: 蓄積された学習データの由来（誰が・どの面で・何を教えたか）."""
+    _seed_event("evt-an-1")
+    _seed_event("evt-an-2")
+    monkeypatch.setattr(server.pc, "add", lambda c: None)
+    client.post("/feedback", json={"event_id": "evt-an-1", "verdict": "correct",
+                                   "user_id": "op-1", "display_name": "班長・鈴木"})
+    client.post("/feedback", json={"event_id": "evt-an-2", "verdict": "wrong",
+                                   "user_id": "mobile-abc",
+                                   "human_cause": "ガイドレール固定ボルトの緩み"})
+    d = client.get("/analytics/cases").json()
+    assert d["total"] == 2 and len(d["rows"]) == 2
+    newest, oldest = d["rows"][0], d["rows"][1]     # newest first
+    assert oldest["actor_name"] == "班長・鈴木" and oldest["surface"] == "Web"
+    assert oldest["verdict"] == "correct" and oldest["taught_cause"] is None
+    assert newest["surface"] == "モバイル"
+    assert newest["taught_cause"] == "ガイドレール固定ボルトの緩み"
+    assert newest["actor_name"] is None             # UI側で「現場の担当者」に
+
+
 def test_thread_message_should_not_open_correction_uninvited(client, monkeypatch) -> None:
     """Slackスレッドの発言は「✗ 原因が違う」で訂正対話が開くまで訂正扱いしない —
     「私が対応します」への謝罪応答バグの回帰テスト（決定論ゲート）。"""
