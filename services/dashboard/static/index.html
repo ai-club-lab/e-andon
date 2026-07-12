@@ -143,6 +143,10 @@ svg.achart text{fill:var(--muted);font-size:11px}
 .ackrow .acked{border-style:solid;color:var(--warn);border-color:#f3c088;background:#fff6e6;pointer-events:none}
 .fb{display:flex;gap:8px;margin-top:4px}
 .fbcap{font-size:10.5px;color:var(--muted);margin-top:10px}
+.demotoggle{width:100%;margin-top:10px;border:1px dashed var(--line);background:none;border-radius:9px;
+  padding:6px;font-size:11px;color:var(--muted);cursor:pointer}
+.demotoggle:hover{color:var(--brand);border-color:var(--brand)}
+.ackstate .ackrow{margin-top:10px}
 .fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .fb button.no:hover{background:var(--alert-soft);border-color:var(--alert);color:var(--alert)}
@@ -317,7 +321,8 @@ function renderCenter(){
         <b>👀 デモの見方（検知から通知まで実時間・約10〜30秒）</b><ol>
         <li>実映像が流れ、約6秒で整列ズレを<b>赤枠で検知</b> → 動画終了とともにライン停止（チョコ停）</li>
         <li>右のAIエージェントがセンサーを自律照会し、<b>消去法で真因・確信度・根拠</b>を通知</li>
-        <li>「✓ 正しい」で承認、「✗ 原因が違う」で<b>AIが対話で真因を質問</b> — 答えると事例化して次回に反映（AI正答率も更新）</li>
+        <li>対応・裁定は本番では<b>Slackの担当者</b>が行います（実メンションで呼ばれ、👋で対応宣言）。カードの
+        「🧪 現場の操作をここで体験する」から同じ操作を体験可能 —「✗ 原因が違った」は<b>AIが対話で真因を質問</b>し、答えると事例化して次回に反映</li>
         <li>チャットで「各センサーは正常？」等の追加質問も可能。もう一度見るにはページを再読み込み</li></ol>
         <div style="margin-top:6px;color:var(--muted)">💡 本番運用では通知は現場のSlackに届き、担当者（当番表で自動選定）が応答します。
         この画面は監視・分析用 — デモでは同じ裁定・対話をここでも体験できます（担当名はデモ用の架空名簿）。</div></div>`);
@@ -669,10 +674,13 @@ async function addAlert(n){
     simHtml(n.similar_case)+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()" '+
     'onload="feed.scrollTop=feed.scrollHeight">'+
+    '<div class="ackstate"></div>'+
+    '<button class="demotoggle" onclick="toggleOps(this)">🧪 現場の操作をここで体験する（本番はSlackの担当者が操作） ▾</button>'+
+    '<div class="demoops" style="display:none">'+
     '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">👋 私が対応します</button></div>'+
     '<div class="fbcap">対応が終わったら、AIの推定を裁定してください（次回の推論が賢くなります）</div>'+
     '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しかった</button>'+
-    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違った</button></div></div>';
+    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違った</button></div></div></div>';
   if(n.routing){ div.dataset.p1=n.routing.primary||''; div.dataset.p2=n.routing.tier2||''; }
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();
@@ -696,9 +704,8 @@ function startPoll(id){
 function stopPoll(id){ clearInterval(pollTimers[id]); delete pollTimers[id]; }
 function applyState(id,d){
   const card=document.getElementById('ac-'+id); if(!card) return;
-  const row=card.querySelector('.ackrow');
-  if(d.ack && row && !row.querySelector('.acked'))
-    renderAckBadge(row, d.ack.actor_name||'現場の担当者', false);
+  if(d.ack && !card.querySelector('.ackstate .acked'))
+    renderAckBadge(card, d.ack.actor_name||'現場の担当者', false);
   if(d.verdict && !card.querySelector('.vdone')){
     card.querySelectorAll('.fb button').forEach(b=>b.classList.add('done'));
     const v=document.createElement('div'); v.className='evi vdone';
@@ -767,12 +774,19 @@ async function doAck(row,id,name){
   if(r.already_adjudicated){ row.innerHTML=''; addMsg('bot','このイベントは裁定済みです。'); return; }
   if(!r.ok){ addMsg('bot','記録に失敗: '+(r.error||'')); return; }
   const who=(r.already_acked&&r.ack&&(r.ack.actor_name))||name||'現場の担当者';
-  renderAckBadge(row,who,!r.already_acked);
+  renderAckBadge(row.closest('.alert-card'),who,!r.already_acked);
   if(r.already_acked) addMsg('bot','先に '+who+' さんが対応中です。');
 }
-function renderAckBadge(row,who,mine){
-  row.innerHTML='<button class="acked" disabled>👋 '+escH(who)+' さんが対応中'
-    +(mine?' — 以降の自動連絡は止めました':'')+'</button>';
+function toggleOps(btn){
+  const d=btn.nextElementSibling, open=d.style.display==='none';
+  d.style.display=open?'':'none';
+  btn.textContent=btn.textContent.replace(open?'▾':'▴', open?'▴':'▾');
+}
+function renderAckBadge(card,who,mine){
+  const st=card.querySelector('.ackstate');
+  if(st) st.innerHTML='<div class="ackrow"><button class="acked" disabled>👋 '+escH(who)+' さんが対応中'
+    +(mine?' — 以降の自動連絡は止めました':'')+'</button></div>';
+  const row=card.querySelector('.demoops .ackrow'); if(row) row.innerHTML='';
 }
 async function fb(btn,id,verdict){
   if(verdict==='wrong') return startCorrection(btn,id);

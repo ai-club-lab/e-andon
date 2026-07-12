@@ -119,7 +119,7 @@ ALTER TABLE past_cases  ADD COLUMN IF NOT EXISTS attachment_uri TEXT;
 -- owner replaces with real Slack IDs via UPDATE (no redeploy needed).
 INSERT INTO routing_rules (category, primary_mention, tier2_mention, tier3_contact) VALUES
     ('positioning', '保全・高橋さん（位置決め担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
-    ('conveyance',  '保全・安藤さん（搬送担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
+    ('conveyance',  '保全・佐藤さん（搬送担当）', '班長・鈴木さん', '設備ベンダー保守窓口 0120-000-000（デモ値）'),
     ('sensor',      '計装・田中さん', '班長・鈴木さん', 'センサーベンダー窓口 0120-111-111（デモ値）'),
     ('other',       '班長・鈴木さん', '製造課長・伊藤さん', '設備ベンダー保守窓口 0120-000-000（デモ値）')
 ON CONFLICT (category) DO NOTHING;

@@ -214,6 +214,26 @@ def test_update_card_reflects_verdict_and_actor(clean_store) -> None:
     assert "鈴木" in blob and "正しい" in blob
 
 
+def test_card_pings_primary_with_real_mention_when_mapped(clean_store, monkeypatch) -> None:
+    """当番表の一次担当が SLACK_PERSONAS で実IDに紐づくとき、カードは
+    <@U...> の実メンションで「鳴らす」。tier2 はカード時点では名前のみ
+    （鳴らすのは5分後のエスカレーション時 — 二段構えの意味を保つ）."""
+    from chokotei_shared.config import SlackConfig
+    monkeypatch.setattr(sinks, "SLACK", SlackConfig(
+        personas_raw="U0MAINT:保全・佐藤さん（搬送担当）;U0LEAD:班長・鈴木さん"))
+    fake = FakeClient()
+    s = sinks.SlackSink(client=fake, channel_id="C1")
+    rt = RoutingDecision(event_id="evt-s1", category="conveyance", rule_version=3,
+                         primary_mention="保全・佐藤さん（搬送担当）",
+                         escalation_plan=[EscalationStep(tier=2, delay_s=300,
+                                                         target_mention="班長・鈴木さん")])
+    asyncio.run(s.post_card(_event(), _rca(), rt, ""))
+    blob = json.dumps(fake.posts[0], ensure_ascii=False)
+    assert "<@U0MAINT>" in blob          # primary rings now
+    assert "<@U0LEAD>" not in blob       # tier2 rings only when escalation fires
+    assert "班長・鈴木さん" in blob       # tier2 is named, not pinged
+
+
 def test_post_card_carries_ack_button_and_similar_case(clean_store) -> None:
     """👋 私が対応します button + 前回の対処 (cause/action/photo) ride the card —
     the past-case store speaks to the human, not only to the agent."""
@@ -227,3 +247,6 @@ def test_post_card_carries_ack_button_and_similar_case(clean_store) -> None:
     assert '"ack"' in blob and "私が対応します" in blob
     assert "類似の過去停止" in blob and "増し締めして再稼働" in blob
     assert "https://example.run.app/attachment/evt-old" in blob
+    photo = next(b for b in fake.posts[0]["blocks"] if b.get("type") == "image"
+                 and "過去事例" in json.dumps(b, ensure_ascii=False))
+    assert photo.get("title"), "過去事例写真はフル画像ブロック（極小サムネイル禁止）"

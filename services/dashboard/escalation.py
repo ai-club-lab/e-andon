@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 import notif_store
-from chokotei_shared import ESCALATION, RoutingDecision, db
+from chokotei_shared import ESCALATION, SLACK, RoutingDecision, db
 
 logger = logging.getLogger("escalation")
 
@@ -140,8 +140,11 @@ class EscalationEngine:
         # mark first — a sink error must not re-fire the tier forever
         await asyncio.to_thread(_mark, eid, tier, "fired", now)
         if tier == 2:
+            target = row.get("target_mention") or ""
+            uid = SLACK.slack_id_for(target)
+            shown = f"<@{uid}>（{target}）" if uid else target
             text = (f"⏱ {ESCALATION.tier2_delay_s // 60}分たっても応答がないため、"
-                    f"{row.get('target_mention') or ''} に連絡します。"
+                    f"{shown} に連絡します。"
                     f"対応できる方はカードの「👋 私が対応します」を押してください。")
         else:  # tier 3: present the outside contact, never auto-page (Req 6.3)
             text = (f"⏱ まだ応答がないため、外部保守窓口の連絡先をご案内します: "

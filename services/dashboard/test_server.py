@@ -357,12 +357,12 @@ def test_slack_actor_wears_persona_when_configured() -> None:
     """デモではSlackの操作者を当番表の人物として表示（SLACK_PERSONAS map）。
     区切りは ; と , の両対応（gcloud --set-env-vars が , を変数区切りに使う）."""
     from chokotei_shared.config import SlackConfig
-    sc = SlackConfig(personas_raw="U1:保全・安藤さん（搬送担当）;U2:班長・鈴木さん",
+    sc = SlackConfig(personas_raw="U1:保全・佐藤さん（搬送担当）;U2:班長・鈴木さん",
                      persona_default="現場担当")
-    assert sc.persona_of("U1") == "保全・安藤さん（搬送担当）"
+    assert sc.persona_of("U1") == "保全・佐藤さん（搬送担当）"
     assert sc.persona_of("U2", "Suzuki") == "班長・鈴木さん"
     assert sc.persona_of("U9", "Suzuki") == "現場担当"      # 未登録は既定ペルソナ
-    sc2 = SlackConfig(personas_raw="U1:安藤,U2:鈴木")        # カンマ区切りも同義
+    sc2 = SlackConfig(personas_raw="U1:佐藤,U2:鈴木")        # カンマ区切りも同義
     assert sc2.persona_of("U2", "x") == "鈴木"
     assert SlackConfig().persona_of("U9", "Suzuki") == "Suzuki"  # 未設定なら実名のまま
 
@@ -373,7 +373,7 @@ def test_roster_api_exposes_duty_table(client) -> None:
     cats = [r["category"] for r in d["rows"]]
     assert cats[:4] == ["positioning", "conveyance", "sensor", "other"]
     conv = d["rows"][1]
-    assert conv["primary"] == "保全・安藤さん（搬送担当）"
+    assert conv["primary"] == "保全・佐藤さん（搬送担当）"
     assert conv["tier2"] == "班長・鈴木さん" and conv["tier2_min"] == 5
     assert conv["tier3_contact"] and conv["tier3_min"] == 15
 

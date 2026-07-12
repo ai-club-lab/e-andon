@@ -61,7 +61,13 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
     if routing:
         tier2 = next((s for s in routing.escalation_plan
                       if s.tier == 2 and s.target_mention), None)
-        mention = f"\n👥 この設備の担当: *{routing.primary_mention}* に通知しました。"
+        # 一次担当は実メンション（SLACK_PERSONASで実IDに紐づく場合）— 通知が
+        # その人に「鳴る」。tier2はこの時点では名前のみ（鳴らすのは5分後の
+        # エスカレーション時。カードで先に鳴らすと二段構えの意味が消える）
+        uid = SLACK.slack_id_for(routing.primary_mention)
+        primary = (f"<@{uid}>（{routing.primary_mention}）" if uid
+                   else f"*{routing.primary_mention}*")
+        mention = f"\n👥 この設備の担当: {primary} に通知しました。"
         if tier2:
             mention += (f"応答がなければ{tier2.delay_s // 60}分後に "
                         f"{tier2.target_mention} へ連絡します。")
@@ -90,12 +96,17 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
         line = f"📚 *類似の過去停止*: 真因「{similar['cause']}」"
         if similar.get("action_taken"):
             line += f" ／ 処置: {similar['action_taken']}"
-        elements: list[dict] = [{"type": "mrkdwn", "text": line}]
+        blocks.insert(len(blocks) - 1,
+                      {"type": "context", "elements": [{"type": "mrkdwn", "text": line}]})
         if similar.get("photo") and deep_link:
+            # 検知フレーム（いま）と過去事例の現場写真（前回の真因の実物）を並べて
+            # 届ける — 初動で見るべき2枚。context の極小サムネイルでは伝わらない
             base = deep_link.split("/e/")[0]
-            elements.insert(0, {"type": "image", "alt_text": "過去事例の現場写真",
-                                "image_url": f"{base}/attachment/{similar['source_event_id']}"})
-        blocks.insert(len(blocks) - 1, {"type": "context", "elements": elements})
+            blocks.insert(len(blocks) - 1, {
+                "type": "image",
+                "title": {"type": "plain_text", "text": "📷 過去事例の現場写真（前回の真因の実物）"},
+                "image_url": f"{base}/attachment/{similar['source_event_id']}",
+                "alt_text": "過去事例の現場写真"})
     return blocks
 
 
