@@ -203,10 +203,12 @@ svg.achart text{fill:var(--muted);font-size:11px}
 
 <div class="shell">
   <aside class="sidebar">
-    <div class="side-h">生産ライン</div>
+    <div class="side-h">監視 — 生産ライン</div>
     <div id="lines"></div>
-    <div class="side-h" style="margin-top:16px">メニュー</div>
-    <button class="menu-item" id="mi-analytics" onclick="selectView('analytics')" title="パレート図・再発検知・AI正答率・学習データの由来">📊 分析・履歴</button>
+    <div class="side-h" style="margin-top:16px">分析・改善</div>
+    <button class="menu-item" id="mi-analytics" onclick="selectView('analytics')" title="再発アラート・パレート図・AI正答率・学習データの由来">📊 分析・履歴</button>
+    <div class="side-h" style="margin-top:16px">運用・管理</div>
+    <button class="menu-item" id="mi-roster" onclick="selectView('roster')" title="原因カテゴリごとの通知先と無応答時の連絡順">👥 当番表</button>
     <button class="menu-item" disabled title="このデモでは対象外です">⚙ 設定<span class="menu-soon">準備中</span></button>
   </aside>
 
@@ -282,10 +284,11 @@ function setGlobalStatus(){
 
 // ---- sidebar ----
 let activeView='line';
-function selectView(v){ activeView=v; history.replaceState(null,'',v==='analytics'?'#analytics':location.pathname);
+function selectView(v){ activeView=v; history.replaceState(null,'',v==='line'?location.pathname:'#'+v);
   renderSidebar(); renderCenter(); }
 function renderSidebar(){
   $('#mi-analytics').classList.toggle('on', activeView==='analytics');
+  $('#mi-roster').classList.toggle('on', activeView==='roster');
   const box=$('#lines'); box.innerHTML='';
   for(const L of LINES){
     const b=document.createElement('button'); b.className='line-item'+(L.id===activeLine&&activeView==='line'?' on':''); b.dataset.id=L.id;
@@ -302,6 +305,7 @@ function selectLine(id){ activeLine=id; activeView='line'; history.replaceState(
 // ---- center ----
 function renderCenter(){
   if(activeView==='analytics'){ renderAnalytics(); return; }
+  if(activeView==='roster'){ renderRoster(); return; }
   const L=LINES.find(x=>x.id===activeLine), c=$('#center'); c.innerHTML='';
   const title=document.createElement('div'); title.className='line-title';
   title.innerHTML='<h1>'+L.name+'</h1><span class="sub">'+L.area+'</span>';
@@ -496,6 +500,29 @@ function connect(){ es=new EventSource('/stream'); es.addEventListener('frame',o
   // 物語を保つ（再稼働は物理ボタンの世界。もう一度見るには再読み込み）
   es.onerror=()=>{ if(lineStatus==='stopped'){ es.close();
     addMsg('bot','📼 この収録の再生は終了しました。もう一度見るにはページを再読み込みしてください。'); } };
+}
+
+// ---- roster view (運用・管理: 誰に知らせるかはこの表が決める — LLMの外) ----
+async function renderRoster(){
+  const c=$('#center'); c.innerHTML='';
+  c.insertAdjacentHTML('beforeend', `
+    <div class="line-title"><h1>当番表</h1><span class="sub">原因カテゴリごとの通知先と、無応答時の連絡順</span></div>
+    <div class="sect"><div class="card apad" id="r-body"><div class="aempty">読み込み中…</div></div></div>
+    <div class="demo-note">通知先の決定はこの表の参照のみで行います（AIは原因カテゴリを推定するだけで、
+      誰に知らせるかは決められません）。担当の変更はこの表の書き換えだけで反映されます（再デプロイ不要）。
+      実運用ではシフト表・休暇と連動させる想定です。担当名はデモ用の架空名簿。</div>`);
+  try{
+    const d=await (await fetch('/api/roster')).json();
+    if(activeView!=='roster') return;
+    $('#r-body').innerHTML =
+      '<table class="atable"><tr><th>原因カテゴリ</th><th>まず通知</th><th>応答がなければ</th><th>それでも応答がなければ</th></tr>'+
+      d.rows.map(r=>'<tr><td><b>'+escH(r.label)+'</b></td>'+
+        '<td>'+escH(r.primary)+'</td>'+
+        '<td>'+(r.tier2?escH(r.tier2)+'（'+r.tier2_min+'分後）':'—')+'</td>'+
+        '<td>'+(r.tier3_contact?escH(r.tier3_contact)+'（'+r.tier3_min+'分後・連絡先の提示のみ）':'—')+'</td></tr>').join('')+
+      '</table>'+
+      '<div style="color:var(--muted);font-size:11.5px;margin-top:8px">出所: '+(d.source==='db'?'Cloud SQL routing_rules（本番運用値）':'組み込み既定値（ローカル）')+'</div>';
+  }catch(e){ $('#r-body').innerHTML='<div class="aempty">読み込みに失敗しました</div>'; }
 }
 
 // ---- analytics view (in-shell, light theme — same shell/sidebar as monitoring) ----
@@ -800,6 +827,7 @@ async function send(){
 
 // ---- boot ----
 if(location.hash==='#analytics') activeView='analytics';
+if(location.hash==='#roster') activeView='roster';
 renderSidebar(); setGlobalStatus(); renderCenter(); connect(); renderChips();
 setInterval(redraw,500); refreshMetrics(); setInterval(refreshMetrics,5000);
 setInterval(updateStopClock,1000);

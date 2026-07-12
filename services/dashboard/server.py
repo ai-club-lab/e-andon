@@ -993,6 +993,30 @@ async def analytics_recurrence(days: int = 7) -> dict:
     return analytics.recurrence(_all_events(), feedback_store.load(), days)
 
 
+@app.get("/api/roster")
+async def api_roster() -> dict:
+    """当番表 — 原因カテゴリごとの通知先と無応答時の連絡順（運用・管理ビュー）。
+    実運用は routing_rules の UPDATE だけで差し替え（コード変更・再デプロイ不要）。"""
+    rules = await asyncio.to_thread(routing._rules)
+    order = ["positioning", "conveyance", "sensor", "other"]
+    rows = []
+    for cat in order + [c for c in rules if c not in order]:
+        r = rules.get(cat)
+        if not r:
+            continue
+        rows.append({
+            "category": cat,
+            "label": analytics.CATEGORY_LABELS.get(cat, cat),
+            "primary": r["primary_mention"],
+            "tier2": r.get("tier2_mention"),
+            "tier2_min": int(r.get("tier2_delay_s") or 0) // 60,
+            "tier3_contact": r.get("tier3_contact"),
+            "tier3_min": int(r.get("tier3_delay_s") or 0) // 60,
+            "version": r.get("version"),
+        })
+    return {"rows": rows, "source": "db" if db.enabled() else "builtin"}
+
+
 @app.get("/analytics/cases")
 async def analytics_cases(limit: int = 50) -> dict:
     """学習データの由来 — 管理者が「何が・誰から・どの面で」蓄積されたかを見る。

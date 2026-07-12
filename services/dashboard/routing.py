@@ -23,7 +23,7 @@ _FALLBACK_RULES: dict[str, dict] = {
     "positioning": {"primary_mention": "保全・高橋さん（位置決め担当）", "tier2_mention": "班長・鈴木さん",
                     "tier2_delay_s": 300, "tier3_contact": "設備ベンダー保守窓口 0120-000-000（デモ値）",
                     "tier3_delay_s": 900, "version": 2},
-    "conveyance": {"primary_mention": "保全・佐藤さん（搬送担当）", "tier2_mention": "班長・鈴木さん",
+    "conveyance": {"primary_mention": "保全・安藤さん（搬送担当）", "tier2_mention": "班長・鈴木さん",
                    "tier2_delay_s": 300, "tier3_contact": "設備ベンダー保守窓口 0120-000-000（デモ値）",
                    "tier3_delay_s": 900, "version": 2},
     "sensor": {"primary_mention": "計装・田中さん", "tier2_mention": "班長・鈴木さん",

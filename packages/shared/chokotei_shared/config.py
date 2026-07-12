@@ -7,6 +7,7 @@ tuned per site without code changes. Defaults come from the PoC calibration
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 
 
@@ -87,13 +88,14 @@ class SlackConfig:
     # anomaly signature posts at most one card per window (deterministic)
     notif_throttle_s: float = float(os.environ.get("NOTIF_THROTTLE_S", 600.0))
     # デモ用ペルソナ割当: Slackの操作者を当番表の人物として表示する。
-    # "U123:保全・佐藤さん（搬送担当）,U456:班長・鈴木さん" 形式＋既定名。
+    # "U123:保全・安藤さん（搬送担当）;U456:班長・鈴木さん" 形式＋既定名。
+    # 区切りは ; または ,（gcloud --set-env-vars が , を変数区切りに使うため）。
     # 未設定なら Slack プロフィール名をそのまま使う（実運用の姿）。
     personas_raw: str = os.environ.get("SLACK_PERSONAS", "")
     persona_default: str = os.environ.get("SLACK_PERSONA_DEFAULT", "")
 
     def persona_of(self, user_id: str, fallback: str | None = None) -> str | None:
-        for pair in self.personas_raw.split(","):
+        for pair in re.split(r"[;,]", self.personas_raw):
             uid, _, name = pair.partition(":")
             if uid.strip() and uid.strip() == user_id and name.strip():
                 return name.strip()
