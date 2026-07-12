@@ -98,7 +98,7 @@ def normalize_category(raw: object) -> CauseCategory:
 _CATEGORY_KEYWORDS: tuple[tuple[CauseCategory, tuple[str, ...]], ...] = (
     ("positioning", ("位置決め", "治具", "整列機構", "ワーク受け", "ストッパ")),
     ("conveyance", ("搬送", "ガイドレール", "ガイド", "レール", "ベルト", "チェーン",
-                    "コンベア", "送り", "インデックス", "ピッチ")),
+                    "コンベア", "送り", "インデックス", "ピッチ", "グリップ")),
     ("sensor", ("センサ", "誤検知", "カメラ", "計装")),
 )
 

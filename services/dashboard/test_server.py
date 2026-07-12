@@ -41,6 +41,7 @@ def _seed_event(event_id: str = "evt-ui-1") -> None:
 def client():
     server.state.events.clear()
     server.state.rca_cache.clear()
+    server.state.sim_cache.clear()
     server._RATE.clear()
     for key in ("FEEDBACK_STORE", "ACK_STORE"):
         if os.path.exists(os.environ[key]):

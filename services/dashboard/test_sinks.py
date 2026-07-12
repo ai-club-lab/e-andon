@@ -229,6 +229,7 @@ def test_card_pings_primary_with_real_mention_when_mapped(clean_store, monkeypat
                                                          target_mention="班長・鈴木さん")])
     asyncio.run(s.post_card(_event(), _rca(), rt, ""))
     blob = json.dumps(fake.posts[0], ensure_ascii=False)
+    assert "<!channel>" in blob          # アンドンは全員が聞く警報 — 誰でも👋できる
     assert "<@U0MAINT>" in blob          # primary rings now
     assert "<@U0LEAD>" not in blob       # tier2 rings only when escalation fires
     assert "班長・鈴木さん" in blob       # tier2 is named, not pinged

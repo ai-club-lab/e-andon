@@ -67,7 +67,9 @@ def _card_blocks(ev: AnomalyEvent, rca: RcaResult,
         uid = SLACK.slack_id_for(routing.primary_mention)
         primary = (f"<@{uid}>（{routing.primary_mention}）" if uid
                    else f"*{routing.primary_mention}*")
-        mention = f"\n👥 この設備の担当: {primary} に通知しました。"
+        # <!channel> でチャンネル全員を鳴らす — アンドンは全員が聞くべき警報で、
+        # 対応宣言（👋）は誰が押してもよい。名指しの担当は「まず動く人」の明示
+        mention = f"\n<!channel> 👥 この設備の担当: {primary} に通知しました。"
         if tier2:
             mention += (f"応答がなければ{tier2.delay_s // 60}分後に "
                         f"{tier2.target_mention} へ連絡します。")

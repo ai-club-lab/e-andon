@@ -69,6 +69,7 @@ class _State:
         self.infer_lock = asyncio.Lock()           # serialize Vertex calls (avoid 429)
         self.sink_error: str | None = None         # loud sink failures (Req 1.4)
         self.notif_sig_ts: dict[str, float] = {}   # signature -> last card time (throttle)
+        self.sim_cache: dict[str, dict | None] = {}  # event_id -> similar case (compute once)
         self.sink = sinks.default_sink(
             on_error=lambda msg: setattr(self, "sink_error", msg))
         self.engine = escalation.EscalationEngine(
@@ -130,7 +131,7 @@ async def _notify_stop(ev: AnomalyEvent, notifs: "asyncio.Queue") -> None:
         text = "⚠ カメラで部品の整列異常を検知し、ラインを停止しました。確認をお願いします。（真因を推定中です）"
     # 前回の対処を人にも見せる（初動短縮）— the same store the agent reads
     rec = state.events.get(ev.event_id) or {"event": ev.model_dump()}
-    similar = await asyncio.to_thread(_similar_case, rec)
+    similar = await asyncio.to_thread(_similar_case_cached, rec)
     # 「この設備の担当は誰々」— resolve once, tell both surfaces by name
     decision = await asyncio.to_thread(_resolve_routing, ev.event_id, rca_d)
     await notifs.put({"event_id": ev.event_id, "text": text,
@@ -166,7 +167,7 @@ async def _notify_when_rca_ready(ev: AnomalyEvent, notifs: "asyncio.Queue") -> N
     if not rca_d:
         return   # infer failed — the error path already logged it (Req 5.6)
     rec = state.events.get(ev.event_id) or {"event": ev.model_dump()}
-    similar = await asyncio.to_thread(_similar_case, rec)
+    similar = await asyncio.to_thread(_similar_case_cached, rec)
     decision = await asyncio.to_thread(_resolve_routing, ev.event_id, rca_d)
     await notifs.put({"event_id": ev.event_id,
                       "text": "（真因の推定が完了しました）" + _stop_story(rca_d),
@@ -458,6 +459,15 @@ def _routing_info(decision) -> dict | None:
             "tier2": tier2.target_mention if tier2 else None,
             "tier2_min": (tier2.delay_s // 60) if tier2 else None,
             "notified": state.sink.enabled()}
+
+
+def _similar_case_cached(rec: dict) -> dict | None:
+    """イベント単位で1回だけ計算 — /api/event はポーリングされるため、毎回
+    ベクトル検索（=埋め込みAPI）を撃つと 429 でクォータが枯れる（実測）."""
+    eid = rec["event"]["event_id"]
+    if eid not in state.sim_cache:
+        state.sim_cache[eid] = _similar_case(rec)
+    return state.sim_cache[eid]
 
 
 def _similar_case(rec: dict) -> dict | None:
@@ -1048,7 +1058,7 @@ async def api_event(event_id: str) -> dict:
         "verdict": ({"verdict": v.get("verdict"), "actor_id": v.get("actor_id"),
                      "actor_name": v.get("actor_name"), "at": v.get("ts")} if v else None),
         "ack": await asyncio.to_thread(ack_store.get, event_id),
-        "similar_case": await asyncio.to_thread(_similar_case, rec),
+        "similar_case": await asyncio.to_thread(_similar_case_cached, rec),
         "routing": _routing_info(await asyncio.to_thread(
             _resolve_routing, event_id, rec.get("rca"))),
         "escalation_notes": rec.get("escalation_notes", []),
