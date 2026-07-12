@@ -126,7 +126,8 @@ header{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:12px 22px;
   padding:7px;font-size:12.5px;color:var(--muted);cursor:pointer}
 .ackrow button:hover{border-color:var(--brand);color:var(--brand)}
 .ackrow .acked{border-style:solid;color:var(--warn);border-color:#f3c088;background:#fff6e6;pointer-events:none}
-.fb{display:flex;gap:8px;margin-top:10px}
+.fb{display:flex;gap:8px;margin-top:4px}
+.fbcap{font-size:10.5px;color:var(--muted);margin-top:10px}
 .fb button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
 .fb button.ok:hover{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
 .fb button.no:hover{background:var(--alert-soft);border-color:var(--alert);color:var(--alert)}
@@ -507,9 +508,10 @@ async function addAlert(n){
     simHtml(n.similar_case)+
     '<img class="thumb" src="/frame/'+id+'" onerror="this.remove()" '+
     'onload="feed.scrollTop=feed.scrollHeight">'+
-    '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 確認・正しい</button>'+
-    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違う</button></div>'+
-    '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">👋 私が対応します</button></div></div>';
+    '<div class="ackrow"><button onclick="ackEvt(this,\''+id+'\')">👋 私が対応します</button></div>'+
+    '<div class="fbcap">対応が終わったら、AIの推定を裁定してください（次回の推論が賢くなります）</div>'+
+    '<div class="fb"><button class="ok" onclick="fb(this,\''+id+'\',\'correct\')">✓ 正しかった</button>'+
+    '<button class="no" onclick="fb(this,\''+id+'\',\'wrong\')">✗ 原因が違った</button></div></div>';
   if(n.routing){ div.dataset.p1=n.routing.primary||''; div.dataset.p2=n.routing.tier2||''; }
   feed.appendChild(div); feed.scrollTop=feed.scrollHeight;
   refreshMetrics();

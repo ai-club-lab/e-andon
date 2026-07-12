@@ -277,6 +277,51 @@ def test_should_hide_anonymous_id_behind_generic_name(client, monkeypatch) -> No
     assert posted and "現場の担当者" in posted[0] and "op-x8f2" not in posted[0]
 
 
+def test_thread_message_should_not_open_correction_uninvited(client, monkeypatch) -> None:
+    """Slackスレッドの発言は「✗ 原因が違う」で訂正対話が開くまで訂正扱いしない —
+    「私が対応します」への謝罪応答バグの回帰テスト（決定論ゲート）。"""
+    import asyncio as aio
+    _seed_event("evt-th-1")
+    called = {"elicit": 0}
+    async def fake_elicit(ctx, message, user_id="line-op"):
+        called["elicit"] += 1
+        return {"reply": "現場では何が原因でしたか?", "recorded": False, "cause": None}
+    monkeypatch.setattr(server, "elicit_correction", fake_elicit)
+    async def fake_answer(message, user_id="line-op"):
+        return "承知しました。カードの👋ボタンでの宣言もお願いします。"
+    monkeypatch.setattr(server, "answer_query", fake_answer)
+    posted = []
+    async def fake_thread(nrec, text): posted.append(text)
+    monkeypatch.setattr(server.state.sink, "post_thread", fake_thread)
+    class _NRec:
+        event_id = "evt-th-1"
+    monkeypatch.setattr(server.notif_store, "by_message_ts", lambda ts: _NRec())
+    try:
+        # ゲート閉: 対応表明はチャット側が応答し、訂正エージェントは呼ばれない
+        aio.run(server._slack_on_message(
+            {"thread_ts": "111.222", "user": "U1", "text": "私が対応します"}))
+        assert called["elicit"] == 0
+        assert posted and "👋" in posted[0]
+        # ✗で開いた後は従来どおり訂正エージェントへ
+        server.state.engine.touch_correction("evt-th-1")
+        aio.run(server._slack_on_message(
+            {"thread_ts": "111.222", "user": "U1", "text": "ボルトが緩んでいた"}))
+        assert called["elicit"] == 1
+    finally:
+        server.state.engine.close_correction("evt-th-1")
+
+
+def test_slack_actor_wears_persona_when_configured() -> None:
+    """デモではSlackの操作者を当番表の人物として表示（SLACK_PERSONAS map）."""
+    from chokotei_shared.config import SlackConfig
+    sc = SlackConfig(personas_raw="U1:保全・佐藤さん（搬送担当）,U2:班長・鈴木さん",
+                     persona_default="現場担当")
+    assert sc.persona_of("U1") == "保全・佐藤さん（搬送担当）"
+    assert sc.persona_of("U2", "Suzuki") == "班長・鈴木さん"
+    assert sc.persona_of("U9", "Suzuki") == "現場担当"      # 未登録は既定ペルソナ
+    assert SlackConfig().persona_of("U9", "Suzuki") == "Suzuki"  # 未設定なら実名のまま
+
+
 def test_should_refuse_ack_when_already_adjudicated(client) -> None:
     _seed_event()
     client.post("/feedback", json={"event_id": "evt-ui-1", "verdict": "correct"})

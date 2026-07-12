@@ -21,7 +21,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import APIRouter, Request, Response
 from slack_sdk.signature import SignatureVerifier
 
-from chokotei_shared import Actor
+from chokotei_shared import SLACK, Actor
 
 logger = logging.getLogger("slack_routes")
 router = APIRouter()
@@ -89,8 +89,11 @@ async def slack_interactivity(request: Request) -> Any:
     if payload.get("type") != "block_actions":
         return {"ok": True}
     user = payload.get("user") or {}
+    # デモではSlackの操作者を当番表のペルソナ（例: 保全・佐藤さん）として表示。
+    # SLACK_PERSONAS 未設定時は Slack プロフィール名のまま（実運用の姿）。
     actor = Actor(surface="slack", user_id=user.get("id", "?"),
-                  display_name=user.get("username") or user.get("name"))
+                  display_name=SLACK.persona_of(
+                      user.get("id", ""), user.get("username") or user.get("name")))
     for action in payload.get("actions") or []:
         event_id = action.get("value", "")
         if action.get("action_id") == "verdict_correct":

@@ -36,6 +36,7 @@
   .send{flex:0 0 84px;background:var(--brand)}
   .esc{color:#ffb454;font-size:13px;margin-top:8px}
   .err{color:#ff7a7a;font-size:13px;margin-top:8px}
+  .fbcap{color:var(--muted);font-size:12px;margin-bottom:8px}
   .sim{border:1px solid #4a4230;background:#242015;border-radius:10px;padding:10px 12px;
        margin-top:10px;font-size:13px;line-height:1.6}
   .sim b{color:#ffcf7d}
@@ -49,9 +50,10 @@
 <div class="card" id="main">読み込み中…</div>
 <div class="card">
   <button class="ackbtn" id="b-ack">👋 私が対応します</button>
+  <div class="fbcap">対応が終わったら、AIの推定を裁定してください（次回の推論が賢くなります）</div>
   <div class="btns">
-    <button class="ok" id="b-ok">✅ 正しい</button>
-    <button class="ng" id="b-ng">❌ 違う</button>
+    <button class="ok" id="b-ok">✅ 正しかった</button>
+    <button class="ng" id="b-ng">❌ 原因が違った</button>
   </div>
   <div class="done" id="done"></div>
   <div class="err" id="err"></div>

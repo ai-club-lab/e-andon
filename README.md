@@ -135,6 +135,7 @@ infra                Cloud SQL スキーマ・WIFセットアップ
   事例が万単位に伸びたら Vector Search 2.0 へ移行する前提で、検索は `search_past_cases`
   ツール1箇所に隔離してある（差し替え点が1つ）。
 - 仕様駆動: [.kiro/specs/chokotei-anomaly-rca/](.kiro/specs/chokotei-anomaly-rca/)（requirements → design → tasks を全トレース）
+- ペルソナ別ユーザーフロー: [docs/personas.md](docs/personas.md)（一次対応者/班長/監視オペ/管理者ごとの体験と設計判断）
 
 ### 採用しなかった選択肢（技術判断）
 

@@ -86,6 +86,18 @@ class SlackConfig:
     # alert-fatigue suppression: with per-playthrough unique event ids, the same
     # anomaly signature posts at most one card per window (deterministic)
     notif_throttle_s: float = float(os.environ.get("NOTIF_THROTTLE_S", 600.0))
+    # デモ用ペルソナ割当: Slackの操作者を当番表の人物として表示する。
+    # "U123:保全・佐藤さん（搬送担当）,U456:班長・鈴木さん" 形式＋既定名。
+    # 未設定なら Slack プロフィール名をそのまま使う（実運用の姿）。
+    personas_raw: str = os.environ.get("SLACK_PERSONAS", "")
+    persona_default: str = os.environ.get("SLACK_PERSONA_DEFAULT", "")
+
+    def persona_of(self, user_id: str, fallback: str | None = None) -> str | None:
+        for pair in self.personas_raw.split(","):
+            uid, _, name = pair.partition(":")
+            if uid.strip() and uid.strip() == user_id and name.strip():
+                return name.strip()
+        return self.persona_default or fallback
 
     @property
     def send_enabled(self) -> bool:

@@ -816,7 +816,8 @@ async def _slack_on_message(event: dict) -> None:
     rec = _event_rec(nrec.event_id)
     if not rec:
         return
-    actor = Actor(surface="slack", user_id=event.get("user", "?"))
+    actor = Actor(surface="slack", user_id=event.get("user", "?"),
+                  display_name=SLACK.persona_of(event.get("user", "")))
     text = (event.get("text") or "").strip()[:MAX_MESSAGE_LEN]
     # one field photo per correction (Req 9.1/9.3): validate, store privately
     for f in (event.get("files") or [])[:1]:
@@ -828,6 +829,27 @@ async def _slack_on_message(event: dict) -> None:
                     attachments_store.save_pending, nrec.event_id, data, ct)
                 await state.sink.post_thread(nrec, "📷 写真を受け取りました。訂正確定時に事例へ添付します。")
                 text = text or "（原因箇所の写真を添付しました）"
+    # 訂正対話は「✗ 原因が違う」で明示的に開かれたときだけ（決定論ゲート）。
+    # 開いていないスレッド発言（対応表明・質問・雑談）まで訂正と扱うと、
+    # 「AIの推定が違っていた」前提の応答が始まってしまう（実運用レビューで発生）。
+    # 未開時は record 権限のないチャットエージェントが文脈に沿って応答する。
+    if not state.engine.correction_open(nrec.event_id):
+        if not text:
+            return
+        try:
+            reply = await answer_query(
+                "（停止イベントのSlackスレッドでの現場の発言です。訂正対話は開かれていません。"
+                "発言が「自分が対応する」という表明なら、短くねぎらい、カードの👋ボタンでの"
+                "宣言も案内してください。真因の報告に見えるなら、カードの ✗ 原因が違う ボタンで"
+                "訂正の聞き取りが始まることを案内してください。質問ならログを調べて答えて"
+                f"ください。前置きは不要です）{text}",
+                user_id=actor.user_id)
+        except Exception:
+            logger.exception("slack thread chat failed",
+                             extra={"ctx": {"event_id": nrec.event_id}})
+            return
+        await state.sink.post_thread(nrec, reply)
+        return
     try:
         result = await elicit_correction(_correction_ctx(rec, actor), text,
                                          user_id=actor.user_id)

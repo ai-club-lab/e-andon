@@ -120,6 +120,10 @@ class EscalationEngine:
     def close_correction(self, event_id: str) -> None:
         self._corrections.pop(event_id, None)
 
+    def correction_open(self, event_id: str) -> bool:
+        """スレッド発言を訂正として扱ってよいか（✗で明示的に開かれた対話のみ）."""
+        return event_id in self._corrections
+
     async def tick(self) -> None:
         now = self._now()
         for row in await asyncio.to_thread(_pending):
